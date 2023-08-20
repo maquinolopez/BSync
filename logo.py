@@ -6,14 +6,18 @@ from PIL import Image
 def create_sync_timeseries_logo():
     fig, ax = plt.subplots(figsize=(6, 4))
 
+    # Set a white background
+    ax.set_facecolor("white")
+    fig.patch.set_facecolor('white')
+
     # Generate a sample time series
     x = np.linspace(0, 10, 100)
     y1 = np.sin(x)
     y2 = np.sin(x - 0.5)  # This is slightly out of phase with y1
 
     # Plot the time series
-    ax.plot(x, y1, color='blue', label="Original")
-    ax.plot(x, y2, color='red', linestyle='--', label="Out of Sync")
+    ax.plot(x, y1, color='blue')
+    ax.plot(x, y2, color='red', linestyle='--')
 
     # Annotate to show synchronization
     arrowprops = dict(facecolor='black', edgecolor='black', arrowstyle='->')
@@ -25,7 +29,6 @@ def create_sync_timeseries_logo():
             fontsize=20, ha='center', fontweight='bold')
 
     # Customize the plot appearance
-    #ax.legend(loc='lower left')
     ax.set_xticks([])
     ax.set_yticks([])
     ax.spines['right'].set_visible(False)
@@ -33,12 +36,12 @@ def create_sync_timeseries_logo():
 
     # Save the image
     plt.tight_layout()
-    plt.savefig('BSynch_timeseries_logo.png', dpi=300, transparent=True)
+    plt.savefig('logo.png', dpi=300, transparent=False)
 
     # Crop out whitespace using PIL
-    img = Image.open('BSynch_timeseries_logo.png')
+    img = Image.open('logo.png')
     img_cropped = img.crop(img.getbbox())
-    img_cropped.save('BSynch_timeseries_logo_cropped.png')
+    img_cropped.save('logo.png')
 
 
 if __name__ == '__main__':
