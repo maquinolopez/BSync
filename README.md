@@ -1,6 +1,6 @@
 # BSynch
 
-![BSynch Logo](./assets/logo.png)
+![BSynch Logo](logo.png)
 
 BSynch is an innovative tool designed to provide automatic and continuous synchronization between proxy records. With an intuitive setup and robust architecture, BSynch makes the task of maintaining up-to-date proxy records a breeze.
 
