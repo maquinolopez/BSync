@@ -5,27 +5,40 @@ require(coda)
 require(KernSmooth)
 require(fields)
 
+
 # set working directory and source the data pre-treatment code
 # setwd("~/Desktop/Francesco/LIG compilation")
 setwd("~/MEGA_A/Cambridge/alignment MCMC/")
 
-#### 
-# iniciate profiling
-# profvis(
-  # {
-##  Let's set up some parameters for our synchronization model
 
+BSynch <- function(Input,Target,folder = '~/Documents/BSynch/',ta = 3,tb = 4,
+                   shape_acc = 10,meanM = 0.7, alpha = 4 ,
+                   iters = 2e+3, burn = 1e+3 ,thin = 150){ 
+
+  source(paste0(folder,'twalk.R') )
+  # parameters of the t-distribution
+  # ta <- 3
+  # tb <- 4
+  # ## Estimate the shape and scale parameters using this formulation
+  # shape_acc = 10 # NB: you can introduce autocorrelation in the gamma distribution by specifying a 
+  # # memory parameters
+  # meanM <- 0.7 # mean memory
+  # alpha <- 4 # strength (higher values result in more peaked shapes)
+  # # number of MCMC steps
+  # iters <- 2e+3
+  # burn <- 1e+3 
+  # thin <- 150
+########################
+# set.seed(123)
 # inflate the stdev of the target if necessary
 inf <- 1 
 # error associated with the input percentage fraction
 mySD <- 0.1
-# parameters of the t-distribution
-ta <- 3
-tb <- 4
-# number of MCMC steps
-iters <- 4e+5
-burn <- 1e+5
 
+# inp <- read.csv(paste0("~/MEGA_A/Cambridge/alignment MCMC//MD01-2444.csv"), header=TRUE)
+# tar <- read.table(file="~/MEGA_A/Cambridge/alignment MCMC//GreenStack.txt", header=TRUE)
+inp <- read.csv(paste0(folder,Input), header=TRUE)
+tar <- read.csv(paste0(folder,Target), header=TRUE)
 #################################################################
 ## useful functions
 # let's scale the data (-1:1) accounting for the standard deviation
@@ -40,7 +53,7 @@ tdistro <- function(X, Mu, sigma, a, b){
 
 ######################################
 # select input data
-inp <- read.csv("~/MEGA_A/Cambridge/alignment MCMC//MD01-2444.csv", header=TRUE)
+
 # inp <- read.csv("~/Desktop/Francesco/LIG compilation/inputs/ODP1082.csv", header=TRUE)
 # remove data older than 140 ka (based on published age model)
 inp <- inp[inp$Age <= 140, ]
@@ -51,7 +64,7 @@ age_temp <- inp$Age
 inp <- cbind(inp$Age, inp$ProxyValue)
 #####################################
 # load target
-tar <- read.table(file="~/MEGA_A/Cambridge/alignment MCMC//GreenStack.txt", header=TRUE)
+
 # tar <- read.table(file="~/Desktop/Francesco/LIG compilation/targets/EDC.txt", header=TRUE)
 #####################################
 
@@ -83,31 +96,34 @@ target <- as.data.frame(approx(tar[,1], tar[,2], seq(start2, end2, by = step2)))
 input[,2] <- range(input[,2]) # flip the data here if necessary
 target[,2] <- range(target[,2])
 
+
+##########################################################
+##  Let's set up some parameters for our synchronization model
 # guesstimates of start and end age for input
 edge1 <- head(input[,1])[1]; edge2 <- tail(input[,1])[6] 
 # uncertainty of start and end age for input (assume an error of 0.25ka for start <10ka BP and 5ka for >10ka BP)
 edge1_sd <- ifelse(head(input[,1])[1] < 10, 0.5, 5); edge2_sd <- 5 
 
+
 ######################################
 
 ######################################
 # plot scaled data
-par(mfrow=c(1,1))
-plot(input, type="l", col=4, ylim=c(-1,1),
-     xlim=c(0,max(target[,1])), xlab="Age (years BP)", ylab="norm")
-par(new=TRUE)
-plot(target, type="l", xaxt='n', yaxt='n', xlab="", ylab="",
-     col=1, ylim=c(-1,1), xlim=c(0,max(target[,1])))
-legend("bottomleft", lty=rep(1,2),
-       c("input", "target"), col=c(4,1), cex=0.5)
-axis(4, col = 4)
-abline(v=seq(0,200,10), lty=3, lwd=0.5)
-#
-hist(target[,2], breaks=50, xlab="norm", main="")
-hist(input[,2], breaks=50, col=4, add=TRUE)
+# par(mfrow=c(1,1))
+# plot(input, type="l", col=4, ylim=c(-1,1),
+#      xlim=c(0,max(target[,1])), xlab="Age (years BP)", ylab="norm")
+# par(new=TRUE)
+# plot(target, type="l", xaxt='n', yaxt='n', xlab="", ylab="",
+#      col=1, ylim=c(-1,1), xlim=c(0,max(target[,1])))
+# legend("bottomleft", lty=rep(1,2),
+#        c("input", "target"), col=c(4,1), cex=0.5)
+# axis(4, col = 4)
+# abline(v=seq(0,200,10), lty=3, lwd=0.5)
+# #
+# hist(target[,2], breaks=50, xlab="norm", main="")
+# hist(input[,2], breaks=50, col=4, add=TRUE)
 ##########################################################
 
-##########################################################
 
 ##########################################################
 # Calculate the interval size and the distance between consecutive nodes
@@ -116,20 +132,18 @@ N <- round(myLength,0) # This is the number of segments (one segment every ~1kyr
 interval <- (myLength)/N # in meters
 nodes <- seq(head(input[,1])[1], tail(input[,1])[6], by = interval) # position of each node along stratigraphic depth
 # generate a random realization of the mean sed rates (in m/yr) of the core
-sr <- (nodes[length(nodes)] - nodes[1])/(rnorm(1, mean = edge2, sd = edge2_sd) - rnorm(1, mean = edge1, sd = edge1_sd))
+# sr <- (nodes[length(nodes)] - nodes[1])/(rnorm(1, mean = edge2, sd = edge2_sd) - rnorm(1, mean = edge1, sd = edge1_sd))
+sr <- (nodes[length(nodes)] - nodes[1])/(edge2 - edge1)
 ##########################################################
 # Set the parameters for the gamma distribution of sedimentation rates 
 mean <- sr
-## Estimate the shape and scale parameters using this formulation
-shape_acc = 1.5 # NB: you can introduce autocorrelation in the gamma distribution by specifying a 
 # large value for the shape parameter. This results in a distribution with a small variance and 
 # a peak close to the mean.
 scale_acc = mean/shape_acc
 ##########################################################
-# Set the parameters for the beta distribution of the memory
+# Set the parameters for the beta distribution of the ory
 # Set the desired mean and alpha parameter
-meanM <- 0.5 # mean memory
-alpha <- 4 # strength (higher values result in more peaked shapes)
+
 # Calculate the beta parameter
 beta <- (alpha / meanM) - alpha
 ##########################################################
@@ -149,17 +163,12 @@ likelihood <- function(params){
   } 
   # Calculate the sequence of points based on the counts and spacing
   points <- c(params[1], params[1] + cumsum(interval/d))
-  # ensure that the sequence is not longer than the target. If so, yield -Inf 
-  ifelse(points[length(points)] > tail(target[,1])[6] | points[length(points)] < (edge2 - (2*edge2_sd)), 
-         {likelihood = -Inf},
-         {
-           # apply new age scale to input data
-           new_input <- cbind(approx(nodes, points, input[,1])$y, input[,2])
-           # interpolate target and its stdev to res new input
-           new_target <- approx(target[,1], target[,2], new_input[,1])$y
-           # predicted values should be close to observed values. Use t distribution
-           likelihood <- tdistro(X = new_input[,2], Mu = new_target, sigma = inf*mySD, a = ta, b = tb)
-         })
+ # apply new age scale to input data
+  new_input <- cbind(approx(nodes, points, input[,1])$y, input[,2])
+ # interpolate target and its stdev to res new input
+  new_target <- approx(target[,1], target[,2], new_input[,1])$y
+ # predicted values should be close to observed values. Use t distribution
+  likelihood <- tdistro(X = new_input[,2], Mu = new_target, sigma = inf*mySD, a = ta, b = tb)
   # sum the likelihood
   sumll = sum(likelihood)
   return(sumll)
@@ -172,12 +181,12 @@ likelihood <- function(params){
 # uninformative proposal distribution
 sampler <-  function(n=1){
   # density of the first and last age point
-  d1 <- runif(n, min=head(target[,1])[1],
-              max=edge1 + (2*edge1_sd))
+  d1 <- runif(n, min=head(target[,1])[1],max=edge1 + (2*edge1_sd))
   # memory value
-  mem <- runif(n, min=0, max=1)
+  mem <- runif(n, min=0.5, max=1)
   # downcore accumulation rates 
   arate <- runif(N, min = 0.5*sr, max = 2*sr) # Initialize a numeric vector of innovations of length N-1
+  # arate <- runif(N, min = 0.9, max = 1.1) # Initialize a numeric vector of innovations of length N-1
   #
   d <- c(d1, mem, arate)
   return(cbind(d))
@@ -187,8 +196,7 @@ sampler <-  function(n=1){
 ##########################################################
 # Prior density
 density <-  function(params){
-  d1 <- log(dtruncnorm(params[1], mean = edge1, sd = edge1_sd,
-                       a=head(target[,1])[1], b=edge1 + (2*edge1_sd)))
+  d1 <- dnorm(params[1], mean = edge1, sd = edge1_sd,log = TRUE)
   # memory value
   dmem <- dbeta(params[2], alpha, beta, log = TRUE)
   # denisity for acc rates 
@@ -200,69 +208,102 @@ density <-  function(params){
 ##########################################################
 
 ##########################################################
+# objective distritro
+obj <- function(param)(-(density(param)+likelihood(param)))
+
+##########################################################
+
+##########################################################
+# support function
+supp <- function(params){
+  d <- numeric(N)  # Initialize a numeric vector of length N
+  # Acc rate initial segment
+  d[1] <- params[3]  # Initialize the first element
+  # Innovations and downcore accumulation rates 
+  arate <- params[4:length(params)] 
+  for (i in 2:N) {
+    d[i] <- (params[2] * d[i-1]) + ((1 - params[2])*arate[i-1])
+  } 
+  # Calculate the sequence of points based on the counts and spacing
+  points <- c(params[1], params[1] + cumsum(interval/d))
+  # ensure that the sequence is not longer than the target. 
+  # note: here I change the or (|) to an and (&), double check with Francesco
+  ifelse(all(c(params> low, params<up)) & (tail(points,1) < tail(target[,1],1) & 
+                                             (points[length(points)] < (edge2 + (2*edge2_sd)) & 
+                                                points[length(points)] > (edge2 - (2*edge2_sd)))), 
+         return(TRUE), 
+         return(FALSE)
+         )
+}
+
+
 # set lower and upper prior boundaries
 low <- c(head(target[,1])[1], # d1
          0, # mem
          rep(0.5*sr, N)) # arate
 up <- c(edge1+(2*edge1_sd), # d1
-        1, # mem
+        1, # mem,
         rep(2*sr, N)) # arate
-# create the prior setup
-prior <- createPrior(sampler = sampler, density = density, lower = low, upper = up, best = NULL)
 
-# collect prior, likelihood and posterior functions
-bayesianSetup <- createBayesianSetup(likelihood = likelihood, prior = prior,
-                                     catchDuplicates = FALSE)
-# setup MCMC simulation
-settings = list(iterations = 3*(iters+burn), burnin = 0)
-# run MCMC chains
+# Run the twalk
+#############################
+
+
+x1 <- sampler()
+while(!(supp(x1))){
+  x1 <- sampler()  
+}
+x2 <- sampler()
+while(!(supp(x2))){
+  x2 <- sampler()  
+}
 
 start.time <- Sys.time()
-chain <- runMCMC(bayesianSetup = bayesianSetup, sampler = "DEzs",settings = settings)
-end.time <- Sys.time()
-time.taken.BT <- end.time - start.time
-time.taken.BT
-
-
-# chain <- runMCMC(bayesianSetup = chain, sampler = "DEzs",settings = settings) # continue a previous MCMC run
-#############################
-
-#############################
-
-gelmanDiagnostics(chain)
-layout(matrix(c(1,1,2,2,3,3,4,4,
-                1,1,2,2,3,3,4,4,
-                5,5,6,6,6,6,6,6,
-                5,5,6,6,6,6,6,6,
-                5,5,6,6,6,6,6,6,
-                5,5,6,6,6,6,6,6,
-                5,5,6,6,6,6,6,6), 7, 8, byrow = TRUE))
-
-# Plot chain
-
-energy = as.numeric(chain$chain[[1]][,length(low)+1])
-energy <- energy[!is.infinite(energy)]
-plot(energy,
-          ylim=c(min(energy[!is.na(energy)]),max(energy[!is.na(energy)])),
-          type='l', ylab="log Likelihood",col="grey40")
-for(i in 2:3){
-  energy = chain$chain[[i]][,length(low)+1]
-  energy <- energy[!is.infinite(energy)]
-  col = c( "grey60", "grey80")
-  lines(energy, col=col[i])
+# #run for burnin
+if(!file.exists('twalk_state.csv')){
+  output <- Runtwalk(iters,Obj = obj,dim = length(x1),x0 = x1,xp0 = x2,Supp =supp,
+                     thinning = length(x1)*thin,burnin= length(x1)*burn   )
+  end.time <- Sys.time()
+  time.taken.Tw <- end.time - start.time
+  time.taken.Tw
+  
+}else{
+  ini = as.matrix(read.csv('twalk_state.csv',sep=',',header = F))
+  # run for iterations
+  print('There is a previus run. We will continue the chain')
+  output <- Runtwalk(iters,Obj = obj,dim = length(x1) , x0 = as.numeric(ini[1,]),xp0 = as.numeric(ini[2,]),Supp =supp,
+                     thinning = length(x1)*thin,burnin= length(x1)*burn   )
+  end.time <- Sys.time()
+  time.taken.Tw <- end.time - start.time
+  time.taken.Tw
+  
 }
-# extract posterior samples
-c <- getSample(chain, start = 0)
-#############################
-# additional burn-in
-burnIn = iters/2
-c <- c[-(1:burnIn),] # remove burn in steps
-# thinning MCMC output
-thin <- 10
-c <- c[seq(1, nrow(c), thin),] # extract only every nth output
-#############################
-# check convergence (should be below 1.05 for all parameters to demonstrate convergence)
 
+last.points <- matrix(c(tail(output$output,1), tail(output$outputp,1)),nrow = 2,byrow = T)
+write.table(x = last.points,file = "twalk_state.csv", row.names = F,col.names = F,sep=',')
+
+####################################################
+####################################################
+########### Plots                  #################
+####################################################
+
+
+layout(matrix(c(1,1,5,5,5,5,5,5,
+                1,1,5,5,5,5,5,5,
+                2,2,6,6,6,6,6,6,
+                2,2,6,6,6,6,6,6,
+                3,3,6,6,6,6,6,6,
+                3,3,6,6,6,6,6,6,
+                4,4,6,6,6,6,6,6,
+                4,4,6,6,6,6,6,6), 8, 8, byrow = TRUE))
+c <- output$output[-1,]
+
+#############################
+#############################
+energy <- output$Us
+energy2 <- output$Ups
+plot(energy,type = 'l',col="grey40")
+lines(energy2,col="grey60")
 ####################################################
 # extract MCMC results and convert acc rates to ages
 accrate <- sapply(1:nrow(c), function(i){
@@ -304,7 +345,7 @@ align <- cbind(approx(nodes, quant[1,], input[,1])$y, input[,2])
   h2_po <- bkde(c[,2], bandwidth=0.1)
   # plot graphs
   if (max(h1_po$y)>max(h1_pr$y)) {hgt = max(h1_po$y)} else {hgt = max(h1_pr$y)}
-  plot(h1_pr$x, h1_pr$y, type='l', col=1, ylim=c(0,hgt),
+  plot(h1_pr$x, h1_pr$y, type='l', col=1, ylim=c(0,hgt),xlim=c(tail(low,1),tail(up,1)),
        xlab="", ylab="density")
   title(xlab = "acc rate ratios", line = 2, cex.lab = 1)
   polygon(c(h1_pr$x, rev(h1_pr$x)), c(h1_pr$y, rep(0, length(h1_pr$y))),
@@ -330,7 +371,7 @@ align <- cbind(approx(nodes, quant[1,], input[,1])$y, input[,2])
 ####################################################
 
 {
-  
+
   # par(new=TRUE)
   # par(mar=c(5.1,26.1,4.1,5.1))
   plot(quant[2,]-quant[1,], quant[1,], yaxt='n',
@@ -343,27 +384,28 @@ align <- cbind(approx(nodes, quant[1,], input[,1])$y, input[,2])
           col = adjustcolor("grey", alpha=0.5), border = NA)
   axis(2, labels = FALSE)
   if (max(c(quant[3,]-quant[2,]))>1) {
-    grid = seq(-10,10,by=0.25)
+    grid = seq(-10,10,by=1.25)
   } else {
-    grid = seq(-10,10,by=0.1)
+    grid = seq(-10,10,by=0.5)
   }
-  abline(v=grid,lty=3, lwd=0.5)
+  abline(v=grid,lty=3, lwd=1.5)
   abline(h=seq(0,500,by=10), lty=3, lwd=0.5)
   # par(mar=c(5.1,4.1,4.1,5.1))
   
   mydepth <- approx(age_temp, depth, nodes)$y
   # par(mar=c(5.1,4.1,4.1,23.1))
-  plot(mydepth, quant[1,], type='l', ylim=c(0,max(align[,1])),
-       xlab="Input depth (MBSF)", ylab="Target age (ka BP)")
-  lines(mydepth, quant[2,], lty=3, lwd=0.5)
-  lines(mydepth, quant[3,], lty=3, lwd=0.5)
-  lines(depth, age_temp, col="orange", lty=5)
-  polygon(c(mydepth, rev(mydepth)),
+  plot(quant[1,],mydepth,  type='l', xlim=c(0,max(align[,1])),
+       ylab="Input depth (MBSF)", xlab="Target age (ka BP)")
+  lines(quant[2,],mydepth,  lty=3, lwd=0.5)
+  lines(quant[3,],mydepth,  lty=3, lwd=0.5)
+  lines(age_temp,depth,  col="orange", lty=5)
+  polygon(
           c(quant[2,], rev(quant[3,])),
+          c(mydepth, rev(mydepth)),
           col = adjustcolor("grey", alpha=0.5), border = NA)
-  abline(v=seq(0,500,by=1),lty=3, lwd=0.5)
-  abline(h=seq(0,500,by=10), lty=3, lwd=0.5)
-  legend("topright", c("posterior","median","published age model", "95% Cl"),
+  abline(h=seq(0,500,by=1),lty=3, lwd=0.5)
+  abline(v=seq(0,500,by=10), lty=3, lwd=0.5)
+  legend("topleft", c("posterior","median","published age model", "95% Cl"),
          col = c("grey", 1, "orange",1), pch=c(15,NA,NA,NA), lty=c(NA,1,5,3), cex=0.5, bg = "white")
 }
 
@@ -402,6 +444,12 @@ align <- cbind(approx(nodes, quant[1,], input[,1])$y, input[,2])
 #                   col.names=c("Depth_mbsl","Median_ka", "proxy"))
 # ##########
 
-print(time.taken.BT)
-energybt <- energy
-samplebt <- c
+
+# })
+write.csv(as.matrix(c),"twalk_output.csv",col.names = NA,row.names = F)
+energytw <- energy
+sampletw <- c
+print(IAT(output,to=output$Tr))
+print(time.taken.Tw)
+
+}
