@@ -3,12 +3,12 @@
 # Synchronizes the Input and Target signals using Bayesian Stats
 #
 # Args:
-#   Input (data.frame): The input data that needs to be synchronized.
-#   Target (data.frame): The target data with which the input data will be synchronized.
+#   Input (string): The input data that needs to be synchronized.
+#   Target (string): The target data with which the input data will be synchronized.
 #   folder (string, default = '~/Documents/BSynch/'): Path where output/results will be saved.
 #   ta (numeric, default = 3): Parameter a of the t distribution.
 #   tb (numeric, default = 4): Parameter b of the t distribution.
-#   shape_acc (numeric, default = 10): Shape parameter for the expansion/compression parameter.
+#   shape_acc (numeric, default = 10): Shape parameter for the compression/expansion parameter.
 #   meanM (numeric, default = 0.7): Mean of the memory parameter.
 #   alpha (numeric, default = 4): scale of the memory parameter.
 #   iters (numeric, default = 2e+3): Number of iterations for the MCMC.
@@ -17,9 +17,9 @@
 #
 
 
-BSynch <- function(Input,Target,folder = '~/Documents/BSynch/',ta = 3,tb = 4,
+BSynch <- function(Input,Target,folder = '~/Documents/BSynch/',ta = 3,tb = 4,gw_z=.1,
                    shape_acc = 10,meanM = 0.7, alpha = 4 ,
-                   iters = 2e+3, burn = 1e+3 ,thin = 50){ 
+                   iters = 2e+3, burn = 1e+3 ,thin = 150){ 
 
   # load data and twalk
   source_twalk(folder)
@@ -27,50 +27,36 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSynch/',ta = 3,tb = 4,
   tar <- load_file_from_folder(Target, folder) #read.csv(paste0(folder,Target), header=TRUE)
   load_or_install_dependencies()
   
-  
-  # parameters of the t-distribution
-  # ta <- 3
-  # tb <- 4
-  # ## Estimate the shape and scale parameters using this formulation
-  # shape_acc = 10 # NB: you can introduce autocorrelation in the gamma distribution by specifying a 
-  # # memory parameters
-  # meanM <- 0.7 # mean memory
-  # alpha <- 4 # strength (higher values result in more peaked shapes)
-  # # number of MCMC steps
-  # iters <- 2e+3
-  # burn <- 1e+3 
-  # thin <- 150
   ########################
-  # set.seed(123)
+  # set.seed(seed)
   # inflate the stdev of the target if necessary
   inf <- 1 
   # error associated with the input percentage fraction
   mySD <- 0.1
-  
-  
-  #################################################################
-  ## useful functions
-  # let's scale the data (-1:1) accounting for the standard deviation
-  range <- function(x){2*(x-min(x))/(max(x)-min(x))-1}
-  #
-  # density estimate of Student t distribution
-  tdistro <- function(X, Mu, sigma, a, b){
-    sigma = sigma^2
-    -1* sum(( ((2*a+1.)/2.) * log(b + ((X - Mu)^2.)/(2.*sigma)) + .5 * log(sigma) ),na.rm = TRUE)
-  }                  
+
+               
   #################################################################
   
   ######################################
   # select input data
-  
   # inp <- read.csv("~/Desktop/Francesco/LIG compilation/inputs/ODP1082.csv", header=TRUE)
   # remove data older than 140 ka (based on published age model)
-  inp <- inp[inp$Age <= 140, ]
+  inp <- inp[inp$Age <= tail(tar[,1],1)-10, ]
   # let's store the depth and age scale
-  depth <- inp$MBSF 
+  depth <- inp$MBSF
   age_temp <- inp$Age
   # let's store the input on its published age scale
-  inp <- cbind(inp$Age, inp$ProxyValue)
+  if (inp$ProxyType[1] == 'd18op' | inp$ProxyType[1] == 'd18ob'){
+    inp <- cbind(inp$Age, -inp$ProxyValue)
+  }else{
+    if(inp$ProxyType[1] == 'mg'){
+      inp <- cbind(inp$Age, log(inp$ProxyValue)  )
+    }else{
+      inp <- cbind(inp$Age, inp$ProxyValue)  
+    }
+        
+  }
+
   #####################################
   # load target
   
@@ -115,25 +101,7 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSynch/',ta = 3,tb = 4,
   
   
   ######################################
-  
-  ######################################
-  # plot scaled data
-  # par(mfrow=c(1,1))
-  # plot(input, type="l", col=4, ylim=c(-1,1),
-  #      xlim=c(0,max(target[,1])), xlab="Age (years BP)", ylab="norm")
-  # par(new=TRUE)
-  # plot(target, type="l", xaxt='n', yaxt='n', xlab="", ylab="",
-  #      col=1, ylim=c(-1,1), xlim=c(0,max(target[,1])))
-  # legend("bottomleft", lty=rep(1,2),
-  #        c("input", "target"), col=c(4,1), cex=0.5)
-  # axis(4, col = 4)
-  # abline(v=seq(0,200,10), lty=3, lwd=0.5)
-  # #
-  # hist(target[,2], breaks=50, xlab="norm", main="")
-  # hist(input[,2], breaks=50, col=4, add=TRUE)
-  ##########################################################
-  
-  
+
   ##########################################################
   # Calculate the interval size and the distance between consecutive nodes
   myLength <- tail(input[,1])[6] - head(input[,1])[1] # length of input
@@ -249,15 +217,15 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSynch/',ta = 3,tb = 4,
   # set lower and upper prior boundaries
   low <- c(head(target[,1])[1], # d1
            0, # mem
-           rep(0.5*sr, N)) # arate
+           rep(0.25*sr, N)) # arate
   up <- c(edge1+(2*edge1_sd), # d1
           1, # mem,
-          rep(2*sr, N)) # arate
+          rep(4*sr, N)) # arate
   
   # Run the twalk
   #############################
   
-  
+  message("searching for initial values")
   x1 <- sampler()
   while(!(supp(x1))){
     x1 <- sampler()  
@@ -279,7 +247,7 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSynch/',ta = 3,tb = 4,
       mcmc_samples <- as.mcmc(as.numeric(output$Us))
       plot(output$Us,type='l')
       test <- geweke.diag(mcmc_samples,frac1=0.5, frac2=0.5)
-      if(abs(test$z) < .1){tester=FALSE}
+      if(abs(test$z) < gw_z){tester=FALSE}
       else{print(paste0('The geweke z-score is ',test$z,', we will run another set of iterations'))}
     }else{
       ini = as.matrix(read.csv(paste0(folder,'twalk_state.csv'),sep=',',header = F))
@@ -294,7 +262,7 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSynch/',ta = 3,tb = 4,
       mcmc_samples <- as.mcmc(as.numeric(output$Us))
       plot(output$Us,type='l')
       test <- geweke.diag(mcmc_samples,frac1=0.5, frac2=0.5)
-      if(abs(test$z) < .1){tester=FALSE}
+      if(abs(test$z) < gw_z){tester=FALSE}
       else{print(paste0('The geweke z-score is ',test$z,', we will run another set of iterations'))}
     }
   }
@@ -329,7 +297,7 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSynch/',ta = 3,tb = 4,
   ####################################################
   ########### Plots                  #################
   ####################################################
-  
+  pdf(paste0(folder,'/aligment.pdf'))
   layout(matrix(c(1,1,5,5,5,5,5,5,
                   1,1,5,5,5,5,5,5,
                   2,2,6,6,6,6,6,6,
@@ -459,14 +427,10 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSynch/',ta = 3,tb = 4,
            lty=c(1,5,1), col=c(4, "orange", 1), cex=0.5)
   }
   ####################################################
-  
-
   # Save output
   write.csv(as.matrix(c),paste0(folder,"twalk_output.csv"),row.names = F)
-  # Specify the file path and name for the PDF
-  pdf_file_path <- paste0(folder,'/aligment.pdf')
   # Open the PDF device
-  pdf(pdf_file_path)
+  
   # Close the PDF device
   dev.off()
 
@@ -474,19 +438,27 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSynch/',ta = 3,tb = 4,
 }
 
 
+# let's scale the data (-1:1) accounting for the standard deviation
+range <- function(x){2*(x-min(x))/(max(x)-min(x))-1}
+#
+# density estimate of Student t distribution
+tdistro <- function(X, Mu, sigma, a, b){
+  sigma = sigma^2
+  -1* sum(( ((2*a+1.)/2.) * log(b + ((X - Mu)^2.)/(2.*sigma)) + .5 * log(sigma) ),na.rm = TRUE)
+}   
+
 
 # loader function
-load_file_from_folder <- function(Input, folder) {
-  
+load_file_from_folder <- function(file_name, folder) {
   # Check for .csv extension
-  csv_path <- paste0(folder, Input, ".csv")
+  csv_path <- paste0(folder, file_name, ".csv")
   if (file.exists(csv_path)) {
     fil <- read.csv(csv_path)
     return(fil)
   }
   
   # Check for .txt extension
-  txt_path <- paste0(folder, Input, ".txt")
+  txt_path <- paste0(folder, file_name, ".txt")
   if (file.exists(txt_path)) {
     fil <- read.table(txt_path, header = TRUE, sep = "\t") # Assuming tab-separated for .txt files
     return(fil)
@@ -538,7 +510,6 @@ load_or_install_dependencies <- function() {
 
 
 
-# BSynch(Input='MD01_2444',Target='GreenStack',folder = '~/Documents/BSynch/MD01_2444-GreenStack/',thin=50,burn=1e+3,iters=2e+3)
-
-
+# BSynch(Input='MD01-2444',Target='GreenStack',folder = '~/Documents/BSynch/MD01-2444 GreenStack/',thin=1,burn=1e+3,iters=5e+2)
+# 
 
