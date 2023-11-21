@@ -126,11 +126,11 @@ Runtwalk <- function(Tr, Obj, Supp, dat, dim = length(x0), x0=x0, xp0=xp0, at=6,
     stop(paste("Not all entries of initial values different,\n  x=", x, "\n xp=", xp))
     Tr <- 0
   }
-  message(paste0('\nRunning ',burnin,' iteration as burn-in'))
-  message(paste0('\nAfter that running ',Tr*thinning,' iterations to get ', Tr, " effective iterations"))
-  message(paste0('\nRunning burn-in'))
+  message(paste0('\nPerforming ', burnin, ' burn-in iterations.'))
+  message(paste0('\nAfter that, running ', Tr*thinning, ' iterations to achieve ', Tr, ' effective iterations.'))
+  message(paste0('\nInitiating burn-in phase.'))
   every <- ceiling(Tr/thinning) # find how many sub-runs to run
-  pb <- txtProgressBar(min=0, max=Tr, style = 3, char=">")
+  pb <- txtProgressBar(min=0, max=Tr-1, style = 3, char=">")
 
   if(length(out.fl) > 0) { # then we'll save the its in files while running
     if(file.exists(out.fl))
@@ -146,6 +146,13 @@ Runtwalk <- function(Tr, Obj, Supp, dat, dim = length(x0), x0=x0, xp0=xp0, at=6,
 
   while(j < Tr) {
     move <- OneMove(dim=dim, Obj=Obj, Supp=Supp, x, U, xp, Up, at=at, aw=aw, pphi=pphi, F1=F1, F2=F2, F3=F3, ...)
+    if(is.na(move$A) ){
+      move$A = 0
+    }
+    # print('__')
+    # print(move$U)
+    # print(move$A)
+    # print('__')
     if(runif(1) < move$A) { # proposed iteration accepted
       tmp.recacc <- c(move$funh, move$nphi/dim)
       acc <- acc + move$nphi/dim
@@ -175,11 +182,11 @@ Runtwalk <- function(Tr, Obj, Supp, dat, dim = length(x0), x0=x0, xp0=xp0, at=6,
     setTxtProgressBar(pb_burn,i_burn )
     if (i_burn == burnin){
       close(pb_burn)
-      message('\nSamping for the effective iterations')
+      message('\nSampling to obtain effective iterations...')
     }
   }
 
-  message("\nDone running...")
+  message("\nThe t-walk run is now complete!")
 
   if(length(out.fl) > 0) {
     rec <- fastread(out.fl, header=FALSE, sep=",") 
@@ -200,6 +207,7 @@ OneMove <- function( dim, Obj, Supp, x, U, xp, Up, at=6, aw=1.5, pphi=min( dim, 
 
   ker <- runif(1)  ## randomly choose a kernel
 
+
   if(ker < F1) { ## the t-walk, kernel h1: traverse
     #dir <- runif(1)
     funh <- 1
@@ -218,7 +226,7 @@ OneMove <- function( dim, Obj, Supp, x, U, xp, Up, at=6, aw=1.5, pphi=min( dim, 
         ## The proposal is symmetric
         if(nphi == 0) ### Nothing moved
           A <- 1 else
-            A <- exp((U - propU) + (Up - propUp) +  (nphi-2)*log(beta))
+            A <- exp( (U - propU) + (Up - propUp) +  (nphi-2)*log(beta) )
         } else {
             propUp <- NULL
             A <- 0  ## out of support, not accepted
@@ -374,8 +382,8 @@ OneMove <- function( dim, Obj, Supp, x, U, xp, Up, at=6, aw=1.5, pphi=min( dim, 
                 }
           }
 
- if(is.nan(A) || is.na(A))  #### debugging line
-    message("Rtwalk: ERROR in evaluating the objective.  Value returned by objective function:", propU)
+ # if(is.nan(A) || is.na(A))  #### debugging line
+ #    message("Rtwalk: ERROR in evaluating the objective.  Value returned by objective function:", propU)
 
   return(list( y=y, propU=propU, yp=yp, propUp=propUp, A=A, funh=funh, nphi=nphi))
 }

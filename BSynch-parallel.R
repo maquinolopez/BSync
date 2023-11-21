@@ -17,13 +17,14 @@
 #
 
 
+
 BSynch <- function(Input,Target,folder = '~/Documents/BSynch/',
                    shape_acc = 2,  mean_acc = 20,
                    strength_mem = 10, mean_mem = .5,
                    n_sections = 100, 
                    sd_input = .1 ,sd_target = .1,
                    tao_mean=TRUE , tao_sd=TRUE ,
-                   gw_z=.1, depth_cm = TRUE, age_kyr=TRUE,
+                   gw_z=.1,depth_cm = TRUE, age_kyr=TRUE,
                    ta = 3,tb = 4,
                    uq =TRUE, depth_to_age = TRUE,
                    iters = 2.5e+3, burn = 2e+3 ,thin = 150,
@@ -31,40 +32,209 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSynch/',
                    verify_orientation = TRUE, flip_orientation = FALSE,
                    cc_limit = FALSE
                    ){ 
+  #### Parallel ####
+  library(foreach)
+  library(doParallel)
+
+  
+  #### First functions ####
+  
+  # Scales the data in the range of [-1,1]
+  range <- function(x){
+    2*(x-min(x))/(max(x)-min(x))-1
+  }
+  
+  # Student t distribution
+  tdistro <- function(X, Mu, sigma, a, b){
+    sigma = sigma^2
+    -1 * sum(( ((2*a+1.)/2.) * log(b + ((X - Mu)^2.)/(2.*sigma)) + .5 * log(sigma) ),na.rm = TRUE)
+  } 
+  
+  t_dis <- function(X, Mu, sigma, a, b){
+    (  (b + ((X - Mu)^2.)/(2.*sigma^2))^(-(2*a+1.)/2.) ) *  (sigma) 
+  } 
+  
+  # Data loader
+  load_file_from_folder <- function(file_name, folder) {
+    message(paste0("Getting data from '", file_name, "'...\n"))
+    # Check for .csv extension
+    csv_path <- paste0(folder, file_name, ".csv")
+    if (file.exists(csv_path)) {
+      
+      fil <- read.csv(csv_path)
+      
+      # Validate columns and headers
+      if(ncol(fil) != 3) {
+        stop("CSV file does not have 3 columns")
+      } 
+      if(!identical(names(fil), c("Depth", "Age", "ProxyValue"))) {
+        names(fil) <- c("Depth", "Age", "ProxyValue") 
+        warning("CSV file headers modified to match required format")
+      }
+      
+      return(fil)
+      
+    }else{
+      # Check for .txt extension
+      txt_path <- paste0(folder, file_name, ".txt")
+      if (file.exists(txt_path)) {
+        
+        fil <- read.table(txt_path, header = TRUE, sep = "\t")
+        
+        # Validate columns and headers
+        if(ncol(fil) != 3) {
+          stop("TXT file does not have 3 columns")
+        }
+        if(!identical(names(fil), c("Depth", "Age", "ProxyValue"))) {
+          names(fil) <- c("Depth", "Age", "ProxyValue")
+          warning("TXT file headers modified to match required format")
+        }
+      }
+      return(fil)
+    }
+    
+    # Return NULL with warning if no matching file
+    warning("No matching file found for the given input in the specified folder.")
+    return(NULL)
+    
+  }
+  
+  # Load twalk
+  source_twalk <- function(folder) {
+    # Construct the path to the twalk.R file in the specified folder
+    twalk_path <- paste0(folder, "..", "/twalk.R")
+    # Check if the twalk.R file exists in the specified folder
+    if (file.exists(twalk_path)) {
+      source(twalk_path)
+      message("Successfully loaded 'twalk.R' from", folder, "directory.\n")
+    } else {
+      warning("File twalk.R was not found in the specified folder.")
+    }
+  }
+  
+  # Load or install dependencies
+  load_or_install_dependencies <- function() {
+    if (!require(KernSmooth, quietly = TRUE)) {
+      message("KernSmooth not found. Installing...\n")
+      install.packages("KernSmooth", dependencies = TRUE)
+      
+      # Load after installing
+      library(KernSmooth)
+      message("KernSmooth installed and loaded successfully!\n")
+    } else {
+      message("KernSmooth loaded successfully!\n")
+    }
+    if (!require(coda, quietly = TRUE)) {
+      message("coda not found. Installing...\n")
+      install.packages("coda", dependencies = TRUE)
+      
+      # Load after installing
+      library(coda)
+      message("coda installed and loaded successfully!\n")
+    } else {
+      message("coda loaded successfully!\n")
+    }
+  }
+  
+  # target function as preparation
+  target_density <-function(tar_ages,tar,bw = 0.05){
+    
+    # Initialize an empty list to store the density objects for each depth
+    kde_list <- list()
+    
+    # Loop through each column (depth) to calculate the kernel density
+    for (col in 1:length(tar_ages)) {
+      values_at_depth <- tar[,col]
+      # Compute kernel density and add to the list
+      kde <- density(values_at_depth, kernel = 'gaussian',bw =bw )
+      kde$x <- c(-.Machine$double.xmax,kde$x,.Machine$double.xmax) 
+      kde$y <- c(.Machine$double.xmin,kde$y+1e-200,.Machine$double.xmin  )
+      kde$y <- log(kde$y)
+      kde_list[[col]] <- kde
+      # print(kde$bw)
+    }
+    
+    return(kde_list)
+  }
+  
+  # Plot the density
+  density_plot <- function(tar_ages, tar_mt,xlabel,ylabel = "proxy units",add = FALSE,axis=TRUE,flip=FALSE){
+    tar_ages_bw <- tar_ages[2] - tar_ages[1] 
+    if (!add){
+      if(axis){
+        if (flip){
+          plot(colMeans(tar_mt),tar_ages , type='l', xlab=ylabel, ylab=xlabel, ylim=c( tar_ages[1],tail(tar_ages,1)),col=rgb(0,0,0,1))  
+        }else{
+          plot(tar_ages,colMeans(tar_mt) , type='l', xlab=xlabel, ylab=ylabel, xlim=c( tar_ages[1],tail(tar_ages,1)),col=rgb(0,0,0,1))  
+        }
+        
+      }else{
+        if (flip){
+          plot(colMeans(tar_mt),tar_ages , type='l', ylab=xlabel, xlab=ylabel, ylim=c( tar_ages[1],tail(tar_ages,1)),col=rgb(0,0,0,1),xaxt = 'n')   
+        }else{
+          plot(tar_ages,colMeans(tar_mt) , type='l', xlab=xlabel, ylab=ylabel, xlim=c( tar_ages[1],tail(tar_ages,1)),col=rgb(0,0,0,1),xaxt = 'n')    
+        }
+      }
+    }else{
+      if (flip){
+        lines(colMeans(tar_mt),tar_ages ,col=rgb(0,0,0,1)) 
+      }else{
+        lines(tar_ages,colMeans(tar_mt) ,col=rgb(0,0,0,1))  
+      }
+    }
+    
+    for(i in 1:ncol(tar_mt) ){
+      h <- hist(tar_mt[,i], plot = FALSE,breaks=150)
+      cols <- gray(1-h$counts/max(h$counts),alpha = .4)
+      # Plot non-zero rects 
+      if (flip){
+        rect(ybottom = tar_ages[i], ytop = tar_ages[i]+tar_ages_bw,
+             xleft = h$breaks[-1], #head(h$breaks, -1),
+             xright = head(h$breaks, -1),# h$breaks[-1],
+             col = cols, border = NA)
+      }else{
+        rect(xleft = tar_ages[i], xright = tar_ages[i]+tar_ages_bw,
+             ybottom = h$breaks[-1], #head(h$breaks, -1),
+             ytop = head(h$breaks, -1),# h$breaks[-1],
+             col = cols, border = NA)
+      }
+    }
+  }
+  
   #### Load packages ####
   load_or_install_dependencies()
   
   #### Load data and twalk ####
   source_twalk(folder)
   
-  #### load cc and data to check if required ####
+  #### load cc and data to check if requiered ####
   if (cc_limit){
-    cc <- read.table(paste0(folder,'6Col_hulu_updated.14C.txt'),header = TRUE)
+    cc <- read.table(paste0(folder,'IntCal20.txt'),header = TRUE)
     test_data <- read.table(paste0(folder, 'Cariaco_14C.txt'),header=FALSE )
     # Create interpolation function 
-    # up_lim <- rep(NA,nrow(test_data))
-    # 
-    # for (i in 1:nrow(test_data)){
-    #   # Create interpolation function 
-    #   f <- approxfun(cc[,1]  , cc[,2] + 3*cc[,3]  - (test_data[i,2] - 3 * test_data[i,3])  )
-    #   # Find roots of interpolation function
-    #   ints <- uniroot(f, lower=min(cc[,1]), upper=max(cc[,1]))$root
-    #   # Find max intersection
-    #   if(length(ints) > 0){
-    #     max_x <- max(ints)
-    #   } else {
-    #     max_x <- NA 
-    #   }
-    #   # save intersections to up_lim 
-    #   up_lim[i] <- max_x
-    # }
+    up_lim <- rep(NA,nrow(test_data))
     
-    up_lim <- test_data[,2] - 3 * test_data[,3]
+    for (i in 1:nrow(test_data)){
+      # Create interpolation function 
+      f <- approxfun(cc[,1]  , cc[,2] + 3*cc[,3]  - (test_data[i,2] + 3 * test_data[i,3])  )
+      # Find roots of interpolation function
+      ints <- uniroot(f, lower=min(cc[,1]), upper=max(cc[,1]))$root
+      # Find max intersection
+      if(length(ints) > 0){
+        max_x <- max(ints)
+      } else {
+        max_x <- NA 
+      }
+      # save intersections to up_lim 
+      up_lim[i] <- max_x
+
+    }
+
     depth_to_check <- test_data[,1] * 100
     
-    # tmp_slope <- lm(formula = up_lim ~ depth_to_check )
-    # tmp_slope <- as.numeric(tmp_slope$coefficients[2])
-  
+    tmp_slope <- lm(formula = up_lim ~ depth_to_check )
+    tmp_slope <- as.numeric(tmp_slope$coefficients[2])
+
   }
 
   #### Load input ####
@@ -95,13 +265,6 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSynch/',
     age_temp <- inp$X   
   }
   
-  # quick test (remove)
-  # ordered <- sort(sample(1:dim(inp)[1],as.integer(.5*dim(inp)[1])))
-  # 
-  # inp <- inp[ordered,]
-  # org_time <- org_time[ordered]
-  # 
-  # print(inp)
   
   #### Load target####
   # Note: create the object inp which only containes the variable which will be alinge and the scale either depth or age
@@ -259,8 +422,7 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSynch/',
              rep(0, n_sections-1)) # m_s
     up <- c( tar_ages[1] + (2*tao_sd),  #tao0
              1, # mem,
-             rep(50, n_sections-1)) # alphas
-             # rep(Inf, n_sections-1)) # alphas
+             rep(Inf, n_sections-1)) # alphas
   }else{
     low <- c(tar_ages[1], #tar$X[1] - (3*tao_sd), # tao0
              0, # mem
@@ -275,17 +437,22 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSynch/',
   # new sd (geometric mean of sd of target and input)
   my_sd = sqrt(sd_input^2 +sd_target^2)
   
-  # get bandwidths
-  if (uq){
-    # Extract bandwidths using lapply
-    bandwidths <- lapply(kde_list, function(x) x$bw)
-    
-    # result as a vector
-    bandwidths <- unlist(bandwidths)
-  }
-  
   
   #### Functions ####
+  
+  
+  # Define a function to get the log density for a given depth and value y
+  n_kde <- length(tar_mt[1,])
+  sd_convertor <- 1/(1.06*n_kde^(-1/5))
+  # Define a function to get the log density for a given depth and value y
+  l_target_kernel <- function(d, new_x,kde_list) {
+    # d is the location in the age vector
+    kde <- kde_list[[d]]
+    # return(sum(dnorm(new_x , tar_mt[,d],sd_convertor * kde$bw,log=TRUE)) / n_kde )
+    # uq_l <- log( sum(dnorm(new_x , tar_mt[,d],sd_convertor * kde$bw,log=F))) - log(n_kde*kde$bw)
+    uq_l <- log(  sum( t_dis(X = new_x , Mu =  tar_mt[,d], sigma = my_sd, a = ta, b = tb)))
+    return(uq_l )
+  }
   
   # tau function (the function which gives the value in the target scale)
   tau <- function(x, param){
@@ -318,7 +485,6 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSynch/',
     l_prior <- l_prior + sum( dgamma(alphas(param), shape = shape_acc, scale = scale_acc, log = TRUE) )
     return(l_prior)
   }
-  
   n_dat <- length(inp$ProxyValue)
   # loglikelihood
   loglikelihood <- function(params){
@@ -338,49 +504,37 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSynch/',
     return(sumll)
   }
   
-  if (uq){
-    
-    n_kde <- length(tar_mt[,1])
-    sd_convertor <- 1/(1.06*n_kde^(-1/5))
-    print(my_sd + sd_convertor * bandwidths[1])
-    print(sd_convertor * bandwidths[1])
-    # Define a function to get the log density for a given depth and value y
-    l_target_kernel <- function(d, new_x,bws) {
-      # d is the location in the age vector
-      ll_vector <- t_dis(X = new_x ,  Mu =  t( tar_mt[,d] ),  sigma =  sd_convertor * bws[d], 
-                         a = ta, b = tb) 
+  # likelihood in case of UQ
+  loglikelihood_uq <- function(params, l_target_kernel= l_target_kernel,localizador=localizador,kde_list=kde_list,inp=inp){
 
-      uq_l <-   sum( log( colSums(t(ll_vector))  ))
-      # return(sum( dnorm(new_x , tar_mt[,d],sd_convertor * kde$bw)) / n_kde )
-      return (uq_l)
-    }
     
-    loglikelihood_uq <- function(params){
-      # Get the ages at which to calculate the target 
-      t_times <- tau(inp$X,params)
-      # get the values of the target at the require times. 
-      loca <- localizador(t_times)
-      ll <- l_target_kernel(d = loca,new_x = inp$ProxyValue,bws = bandwidths) 
-      return(ll)
+    # Get the ages at which to calculate the target 
+    t_times <- tau(inp$X,params)
+    # get the values of the target at the require times. 
+    # new_target <- approx(tar$X,tar$ProxyValue,t_times)
+    # predicted values should be close to observed values. Use t distribution
+    # Capture the environment of the outer function
+    # clusterExport(cl, varlist = c("tar_ages", "inp",'tar_mat','my_sd','ta','tb','t_times')) 
+    cl <- makeCluster(detectCores() - 1) 
+    registerDoParallel(cl)
+    ll <- foreach(k = 1:n_dat ) %dopar% {
+      l_target_kernel(localizador(t_times[k]),kde_list = kde_list, new_x = inp$ProxyValue[k] )
     }
+    ll <- sum (ll)
+    # for (k in sample(1:n_dat,as.integer(n_dat*.25)) ){    
+    # for (k in 1:length(t_times)){
+    #   lk <- l_target_kernel(localizador(t_times[k]),kde_list = kde_list, new_x = inp$ProxyValue[k] )
+    #   ll <- ll + lk # d, y,kde_list
+    # }
+    stopCluster(cl)
+    return(ll)
   }
   
 
+  
   # objective distritro
   if (uq){
-    if(cc_limit){
-      invcal <- approxfun(cc[,1],cc[,2])
-      obj <- function(param){ 
-        cal_yr <- tau(depth_to_check,param)
-        cc_yr <- invcal(cal_yr)
-        newlogll <- sum( dnorm((cc_yr - test_data[,2] ) , 30,50,log = T ) )
-        return( -(logprior(param) + loglikelihood_uq(param) + newlogll))
-        }
-      
-    }else{
-      obj <- function(param){ -(logprior(param)+loglikelihood_uq(param)) }
-    }
-    
+    obj <- function(param){ -(logprior(param)+loglikelihood_uq(param)) }
   }else{
     obj <- function(param)(-(logprior(param)+loglikelihood(param)))
   }
@@ -388,22 +542,15 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSynch/',
   
   # support function
   if (cc_limit){
-    invcal_supp <- approx(cc[,1]  , cc[,2] + 3*cc[,3])
     supp <- function(params){
-      alp <- alphas(params)
-      age_lim <- tau(tail(inp$X,1),params) 
-      
-      # ages_to_check <- tau(depth_to_check,params)
-      # ages_to_check <-invcal_supp( ages_to_check )
-      # 
-      # print(ages_to_check > up_lim  )
-      # print('______')
-      # print(all(alp > 0 ))
+      ages_to_check <- tau(depth_to_check,params)
       # tau0 <- param[1]
       # w <- param[2]
-
-      ifelse(all( c(params > low, params < up,alp > 0,#ages_to_check > up_lim ,
-                    age_lim < mx_age ) ) ,
+      alp <- alphas(params)
+      age_lim <- tau(tail(inp$X,1),params) 
+      ifelse(all( c(params > low, params < up, ages_to_check > up_lim  ) ) & 
+               all( alp > 0 ) &   
+               age_lim < mx_age ,
              return(TRUE), 
              return(FALSE)
       )
@@ -411,30 +558,24 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSynch/',
     # generates initial points.
     sampler <-  function(rerun=FALSE){
       # generate to0
-      tao0 <- runif(1, low[1],low[1]+1) 
+      tao0 <- runif(1, low[1],low[1]+10) 
       # memory value
-      indx <- which(breaks >= depth_to_check[1])[1]-1
-      indx2 <-  tail(which(breaks <= tail(depth_to_check,1)),1)+2
-      # get the first slopes
       
-      f <- approxfun(cc[,1]  , cc[,2] + 3 * cc[,3] - max(up_lim[1:5] )  )
-      # Find roots of interpolation function
-      xx_lim <- uniroot(f, lower=min(cc[,1]), upper=max(cc[,1]))$root
-       
-      m0 <-  ( max(xx_lim + 1000) - tao0 ) / ( depth_to_check[1] - inp$X[1] )
+      indx <- which(breaks>=depth_to_check[1])[1]-1
+      indx2 <-  tail(which(breaks<=tail(depth_to_check,1)),1)
+      #get the first slopes
+      m0 <-  (max(up_lim[1:10])+50 - tao0)/ (breaks[indx]-inp$X[1])
       ms <- rnorm(indx, m0, .01 )  
       #get the slopes for the place where there is cc
-      xx_lim <- approx( cc[,2] + 3 * cc[,3] ,cc[,1]  ,up_lim)$y
-      slopes <- lm(formula = (xx_lim +500 ) ~ depth_to_check  )
+      slopes <- lm(formula = (up_lim+50) ~ depth_to_check  )
       slopes <- ceiling(as.numeric(slopes$coefficients[2]))
-      ns <- indx2 - indx
+      ns <- indx2-indx
       slopes <- rnorm(ns,slopes,.01)
       ms <- c(ms,slopes)
-
       #finisg the ms with the remaning 
       tau_is <- c(tao0, tao0 + cumsum(ms * b_length))
-      last_ms = ((mx_age-5) - tail(tau_is,1))/(tail(breaks,1)-breaks[indx2])
-      ns <- length(breaks) - indx2 - 1
+      last_ms = ((mx_age-10) - tail(tau_is,1))/(tail(breaks,1)-breaks[indx2])
+      ns <- length(breaks)-indx2-1
       last_mss <- rnorm(ns,last_ms,.01)
       ms <- c(ms,last_mss)
       w_lim <- min (ms[-length(ms)]/ms[-1])
@@ -478,7 +619,7 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSynch/',
             tao0 <- rnorm(1,org_time[1]+500,1)
             print(breaks)
             print(test_data)
-
+            break
             print( diff(approx(inp$X,org_time,breaks)$x ) )
             tmp_mean <- diff( approx(inp$X,org_time*1000,breaks)$y ) / diff( approx(inp$X,org_time*1000,breaks)$x ) + 5
             # print(tmp_mean)
@@ -499,6 +640,8 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSynch/',
         return(c(tao0, w, ms))
       }
   }
+  
+  
   
 
   
@@ -531,6 +674,7 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSynch/',
     }
     
   } else {
+    message("Searching for initial values...")
     x1 <- initial_search()
     x2 <- initial_search()
   }
@@ -700,7 +844,7 @@ layout(matrix(c(1,1,1,1,5,5,5,5,5,5,
     lines( rev(org_time)*1000, inp$X, col=rgb(0,1,1,.5))
 
     }
-    
+
   }
 
   # Plot the alignment 
@@ -722,28 +866,12 @@ layout(matrix(c(1,1,1,1,5,5,5,5,5,5,
   
   }
   
-  if (cc_limit){
-    layout(matrix(c(1), 1, 1, byrow = TRUE))
-    {
-      # test_data[,2] - 3 * test_data[,3]
-      cal_yr <- approx(breaks, quants[2,],depth_to_check)$y
-      plot(cal_yr,test_data[,2],
-           xlim = c(min(cal_yr)-100, max(cal_yr)+100),
-           ylim = c(min(test_data[,2])-100,max(test_data[,2])+100),
-           xlab = 'cal yr', ylab = 'Radiocarbon age',
-           pch=16,col=rgb(1,0,0,.6))
-      lines(cc[,1],cc[,2],col='black')
-      lines(cc[,1],cc[,2] - 3 * cc[,3],col='black')
-      lines(cc[,1],cc[,2] + 3 * cc[,3],col='black')
-      points(approx(inp$X,org_time*1000,depth_to_check)$y,test_data[,2],col = rgb(0,0,1,.3),pch = 16)
-      legend("topleft",legend = c('Cariaco','Calibration Curve'), pch = c(16,NA),
-             lty = c(NA,1),bg=NA,col = c(rgb(1,0,0,.5),1),bty = 'n' )
-      
-    }    
-  }
-
-
+  
+  
   #### finishing message ####
+  
+  # Stop the parallel cluster
+
   cat('Might sound crazy but it ain\'t no lie\n
           Bye bye bye\n')  
   return (output)
@@ -752,179 +880,15 @@ layout(matrix(c(1,1,1,1,5,5,5,5,5,5,
 
 
 
-# Scales the data in the range of [-1,1]
-range <- function(x){
-  2*(x-min(x))/(max(x)-min(x))-1
-  }
-
-# Student t distribution
-tdistro <- function(X, Mu, sigma, a, b){
-  sigma = sigma^2
-  -1 * sum(( ((2*a+1.)/2.) * log(b + ((X - Mu)^2.)/(2.*sigma)) + .5 * log(sigma) ),na.rm = TRUE)
-} 
-
-t_dis <- function(X, Mu, sigma, a, b){
-   (  (b + ((X - Mu)^2.)/(2.*sigma^2))^(-(2*a+1.)/2.) ) *  (sigma) 
-} 
-
-# Data loader
-load_file_from_folder <- function(file_name, folder) {
-  message(paste0("Getting data from '", file_name, "'...\n"))
-  # Check for .csv extension
-  csv_path <- paste0(folder, file_name, ".csv")
-  if (file.exists(csv_path)) {
-    
-    fil <- read.csv(csv_path)
-    
-    # Validate columns and headers
-    if(ncol(fil) != 3) {
-      stop("CSV file does not have 3 columns")
-    } 
-    if(!identical(names(fil), c("Depth", "Age", "ProxyValue"))) {
-      names(fil) <- c("Depth", "Age", "ProxyValue") 
-      warning("CSV file headers modified to match required format")
-    }
-    
-    return(fil)
-    
-  }else{
-    # Check for .txt extension
-    txt_path <- paste0(folder, file_name, ".txt")
-    if (file.exists(txt_path)) {
-      
-      fil <- read.table(txt_path, header = TRUE, sep = "\t")
-      
-      # Validate columns and headers
-      if(ncol(fil) != 3) {
-        stop("TXT file does not have 3 columns")
-      }
-      if(!identical(names(fil), c("Depth", "Age", "ProxyValue"))) {
-        names(fil) <- c("Depth", "Age", "ProxyValue")
-        warning("TXT file headers modified to match required format")
-      }
-    }
-    return(fil)
-  }
-  
-  # Return NULL with warning if no matching file
-  warning("No matching file found for the given input in the specified folder.")
-  return(NULL)
-  
-}
-
-# Load twalk
-source_twalk <- function(folder) {
-  # Construct the path to the twalk.R file in the specified folder
-  twalk_path <- paste0(folder, "..", "/twalk.R")
-  # Check if the twalk.R file exists in the specified folder
-  if (file.exists(twalk_path)) {
-    source(twalk_path)
-    message("Successfully loaded 'twalk.R' from", folder, "directory.\n")
-  } else {
-    warning("File twalk.R was not found in the specified folder.")
-  }
-}
-
-# Load or install dependencies
-load_or_install_dependencies <- function() {
-  if (!require(KernSmooth, quietly = TRUE)) {
-    message("KernSmooth not found. Installing...\n")
-    install.packages("KernSmooth", dependencies = TRUE)
-    
-    # Load after installing
-    library(KernSmooth)
-    message("KernSmooth installed and loaded successfully!\n")
-  } else {
-    message("KernSmooth loaded successfully!\n")
-  }
-  if (!require(coda, quietly = TRUE)) {
-    message("coda not found. Installing...\n")
-    install.packages("coda", dependencies = TRUE)
-    
-    # Load after installing
-    library(coda)
-    message("coda installed and loaded successfully!\n")
-  } else {
-    message("coda loaded successfully!\n")
-  }
-}
-
-# target function as preparation
-target_density <-function(tar_ages,tar,bw = 0.05){
-
-  # Initialize an empty list to store the density objects for each depth
-  kde_list <- list()
-  
-  # Loop through each column (depth) to calculate the kernel density
-  for (col in 1:length(tar_ages)) {
-    values_at_depth <- tar[,col]
-    # Compute kernel density and add to the list
-    kde <- density(values_at_depth, kernel = 'gaussian',bw =bw )
-    kde$x <- c(-.Machine$double.xmax,kde$x,.Machine$double.xmax) 
-    kde$y <- c(.Machine$double.xmin,kde$y+1e-200,.Machine$double.xmin  )
-    kde$y <- log(kde$y)
-    kde_list[[col]] <- kde
-    # print(kde$bw)
-  }
-
-  return(kde_list)
-}
-
-# Plot the density
-density_plot <- function(tar_ages, tar_mt,xlabel,ylabel = "proxy units",add = FALSE,axis=TRUE,flip=FALSE){
-  tar_ages_bw <- tar_ages[2] - tar_ages[1] 
-  if (!add){
-    if(axis){
-      if (flip){
-        plot(colMeans(tar_mt),tar_ages , type='l', xlab=ylabel, ylab=xlabel, ylim=c( tar_ages[1],tail(tar_ages,1)),col=rgb(0,0,0,1))  
-      }else{
-        plot(tar_ages,colMeans(tar_mt) , type='l', xlab=xlabel, ylab=ylabel, xlim=c( tar_ages[1],tail(tar_ages,1)),col=rgb(0,0,0,1))  
-      }
-       
-    }else{
-      if (flip){
-        plot(colMeans(tar_mt),tar_ages , type='l', ylab=xlabel, xlab=ylabel, ylim=c( tar_ages[1],tail(tar_ages,1)),col=rgb(0,0,0,1),xaxt = 'n')   
-      }else{
-        plot(tar_ages,colMeans(tar_mt) , type='l', xlab=xlabel, ylab=ylabel, xlim=c( tar_ages[1],tail(tar_ages,1)),col=rgb(0,0,0,1),xaxt = 'n')    
-      }
-    }
-  }else{
-    if (flip){
-      lines(colMeans(tar_mt),tar_ages ,col=rgb(0,0,0,1)) 
-    }else{
-      lines(tar_ages,colMeans(tar_mt) ,col=rgb(0,0,0,1))  
-    }
-  }
-  
-  for(i in 1:ncol(tar_mt) ){
-    h <- hist(tar_mt[,i], plot = FALSE,breaks=150)
-    cols <- gray(1-h$counts/max(h$counts),alpha = .4)
-    # Plot non-zero rects 
-    if (flip){
-      rect(ybottom = tar_ages[i]-.5*tar_ages_bw, 
-           ytop = tar_ages[i]+.5*tar_ages_bw,
-           xleft = h$breaks[-1], #head(h$breaks, -1),
-           xright = head(h$breaks, -1),# h$breaks[-1],
-           col = cols, border = NA)
-    }else{
-      rect(xleft = tar_ages[i], 
-           xright = tar_ages[i]+tar_ages_bw,
-           ybottom = h$breaks[-1], #head(h$breaks, -1),
-           ytop = head(h$breaks, -1),# h$breaks[-1],
-           col = cols, border = NA)
-    }
-  }
-}
-
 
 
 
 ##### Run the model for testing (using Uq)
 
 output = BSynch(Input='input',Target='target',folder = '~/Documents/BSynch/Uq_cc/',
-                n_sections = 40,
-                thin=4,burn=3e+3,iters=1.5e+3,
-                shape_acc = 100,  mean_acc = 20,
+                n_sections = 35,
+                thin=50,burn=4e+4,iters=1.5e+3,
+                shape_acc = 20,  mean_acc = 20,
                 strength_mem = 10, mean_mem = .5,
                 depth_cm = FALSE,depth_to_age = TRUE,
                 age_kyr = TRUE,continue_run = T,
