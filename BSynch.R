@@ -338,18 +338,30 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSynch/',
     return(sumll)
   }
   
+  # likelihood in case of UQ
   if (uq){
+    Rcpp::sourceCpp("~/GitHub/BSynch/targetDensity.cpp")
+    loglikelihood_uqC <- function(params){
+      # Get the ages at which to calculate the target 
+      t_times <- tau(inp$X,params)
+      # get the values of the target at the require times. 
+      loca <- localizador(t_times)
+      loca <- as.integer(loca)
+      
+      ll <-loglikelihood_uqCpp(params, inp$ProxyValue, bandwidths, tar_mt, sd_convertor ,loca)
+      
+      return(ll)
+    }
     
     n_kde <- length(tar_mt[,1])
     sd_convertor <- 1/(1.06*n_kde^(-1/5))
-    print(my_sd + sd_convertor * bandwidths[1])
-    print(sd_convertor * bandwidths[1])
+    
     # Define a function to get the log density for a given depth and value y
     l_target_kernel <- function(d, new_x,bws) {
       # d is the location in the age vector
       ll_vector <- t_dis(X = new_x ,  Mu =  t( tar_mt[,d] ),  sigma =  sd_convertor * bws[d], 
                          a = ta, b = tb) 
-
+      
       uq_l <-   sum( log( colSums(t(ll_vector))  ))
       # return(sum( dnorm(new_x , tar_mt[,d],sd_convertor * kde$bw)) / n_kde )
       return (uq_l)
@@ -365,20 +377,22 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSynch/',
     }
   }
   
+  
 
   # objective distritro
   if (uq){
     if(cc_limit){
       invcal <- approxfun(cc[,1],cc[,2])
+      
       obj <- function(param){ 
         cal_yr <- tau(depth_to_check,param)
         cc_yr <- invcal(cal_yr)
         newlogll <- sum( dnorm((cc_yr - test_data[,2] ) , 30,50,log = T ) )
-        return( -(logprior(param) + loglikelihood_uq(param) + newlogll))
+        return( -(logprior(param) + loglikelihood_uqC(param) + newlogll))
         }
       
     }else{
-      obj <- function(param){ -(logprior(param)+loglikelihood_uq(param)) }
+      obj <- function(param){ -(logprior(param)+loglikelihood_uqC(param)) }
     }
     
   }else{
@@ -391,7 +405,7 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSynch/',
     invcal_supp <- approx(cc[,1]  , cc[,2] + 3*cc[,3])
     supp <- function(params){
       alp <- alphas(params)
-      age_lim <- tau(tail(inp$X,1),params) 
+      age_lim <- tauC(tail(inp$X,1),params) 
       
       # ages_to_check <- tau(depth_to_check,params)
       # ages_to_check <-invcal_supp( ages_to_check )
@@ -923,7 +937,7 @@ density_plot <- function(tar_ages, tar_mt,xlabel,ylabel = "proxy units",add = FA
 
 output = BSynch(Input='input',Target='target',folder = '~/Documents/BSynch/Uq_cc/',
                 n_sections = 40,
-                thin=4,burn=3e+3,iters=1.5e+3,
+                thin=10,burn=3e+3,iters=1.5e+3,
                 shape_acc = 100,  mean_acc = 20,
                 strength_mem = 10, mean_mem = .5,
                 depth_cm = FALSE,depth_to_age = TRUE,
