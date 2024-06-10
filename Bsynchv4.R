@@ -97,15 +97,17 @@ load_file_from_folder <- function(file_name, folder) {
 }
 
 # Load twalk
-source_twalk <- function(folder) {
+source_twalk <- function(folder="~/GitHub/BSynch/") {
   # Construct the path to the twalk.R file in the specified folder
   # twalk_path <- paste0(folder, "~/GitHub/BSynch/Rctwalk.R") # change this 
-  twalk_path <- paste0("~/GitHub/BSynch/Rcpp_twalk.cpp") # change this
+  twalk_path <- paste0(folder, "Rcpp_twalk.cpp") # change this
   # message("Loading 'twalk.R' from ", folder, ".\n")
-  Rcpp::sourceCpp("~/GitHub/BSynch/Rcpp_twalk.cpp")
+  
   # Check if the twalk.R file exists in the specified folder
   if (file.exists(twalk_path)) {
+    
     # source(twalk_path)
+    Rcpp::sourceCpp(twalk_path)
     message("Successfully loaded 'twalk.R' from ", folder, " directory.\n")
   } else {
     warning("File twalk.R was not found in the specified folder.")
@@ -273,21 +275,30 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
                    savefig =FALSE,
                    bw_filter_hi_corr = FALSE, filter_cuyoff = TRUE,
                    last_tiepoint = TRUE,
+                   twalk_fol = "~/GitHub/BSynch/",
                    run = TRUE
 ){ 
   #### Define the re-scaling function ####
+  
+  range <- function(x) {
+    q = .99
+    q1 <- quantile(x, 1- (1- q)/2 )
+    q2 <- quantile(x, (1- q)/2)
+    2 * (x - q2) / (q1 - q2) - 1
+  }
+  
   # normalize the records 
   if (range_f==1){
     range_T <- range
   }else{
-    range_T <- range2#scale
+    range_T <- scale
   }
   
   #### Load packages ####
   load_or_install_dependencies()
   
   #### Load data and twalk ####
-  source_twalk(folder)
+  source_twalk(twalk_fol)
 
   #### Load input ####
   inp <- load_file_from_folder(Input, folder) 
