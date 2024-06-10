@@ -6,7 +6,7 @@
 using namespace Rcpp;
 
 
-
+// This is the interpolation function
 // [[Rcpp::export]]
 NumericVector linearInterpolation(NumericVector X, NumericVector y, NumericVector newx) {
   int xy_size = X.size();
@@ -39,7 +39,7 @@ NumericVector tauC(NumericVector x, NumericVector param, double b_length, Numeri
   double tau0 = param[0];
   int n_slopes = param.size() - 2; // Excluding tau0 and w
   NumericVector slopes = param[Rcpp::Range(2, param.size() - 1)]; // Equivalent to param[-c(1,2)] in R
-  
+
   NumericVector tau_is(n_slopes + 1);
   tau_is[0] = tau0;
   double cumsum = tau0;
@@ -48,6 +48,7 @@ NumericVector tauC(NumericVector x, NumericVector param, double b_length, Numeri
     cumsum += slopes[i] * b_length;
     tau_is[i + 1] = cumsum;
   }
+  
   NumericVector taus = linearInterpolation(breaks, tau_is, x);
   return taus;
 }
@@ -62,8 +63,9 @@ double tdistroC(NumericVector  X, NumericVector Mu, double sigma, double a, doub
   //   throw std::invalid_argument("X and Mu must be of the same size");
   // }
   
-  double sigmaSquared = sigma * sigma; // Precompute sigma squared
-  double logSigma = 0.5 * log(sigmaSquared); // Precompute .5 * log(sigma)
+  double sigmaSquared =  sigma * sigma; // Precompute sigma squared
+  double logSigma = 0.5 * log( sigmaSquared); // Precompute .5 * log(sigma)
+  double oneoversigmaSquared =1 / sigmaSquared; // Precompute 1/sigma squared
   double aTerm = (2 * a + 1) / 2.0; // Precompute (2 * a + 1) / 2.0
   
   double sum = 0.0;
@@ -74,13 +76,14 @@ double tdistroC(NumericVector  X, NumericVector Mu, double sigma, double a, doub
     
     // if (std::isnan(x) || std::isnan(mu)) continue; // Skip NaN values for both x and mu
     double diffSquared = (x - mu) * (x - mu); // Precompute (x - mu)^2
-    double term = aTerm * log(b + diffSquared / (2 * sigmaSquared)) + logSigma;
+    double term = aTerm * log(b + (diffSquared * oneoversigmaSquared) ) + logSigma;
     sum -= term; // Subtracting because the original R function multiplies by -1
   }
   
   return sum;
 } 
 
+// This is the likelihood function
 // [[Rcpp::export]]
 double loglikelihoodC(NumericVector params, NumericVector tar_prox, 
                       NumericVector inp_X, NumericVector inp_ProxyValue, 
@@ -103,7 +106,6 @@ double loglikelihoodC(NumericVector params, NumericVector tar_prox,
 
 //___________________________________
 // This functions are for the UQ
-
 
 // Helper function to calculate normal density
 
@@ -145,7 +147,7 @@ NumericVector getColumn(NumericMatrix tar,int col) {
 
 // [[Rcpp::export]]
 double lTargetKernelCpp(int d, double newX, double kdeValue, NumericVector tar, double sdConvertor) {
-  double s_2 = sdConvertor * kdeValue;
+  double s_2 = sdConvertor * kdeValue * 2.0; // Here we increase the sd to avoid numerical problems
   long double sumDnorm = 0;
   for(int i = 0; i < tar.length(); i++) {
     double mu = tar[i];
