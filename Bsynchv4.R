@@ -22,7 +22,7 @@
 # }
 
 range_quantile <- function(x) {
-  q = .99
+  q = .95
   q1 <- quantile(x, 1- (1- q)/2 )
   q2 <- quantile(x, (1- q)/2)
   2 * (x - q2) / (q1 - q2) - 1
@@ -627,10 +627,10 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
   if (depth_to_age){
     low <- c(tar_ages[1],#tar$X[1] - (3*tao_sd), # tao0
              0, # mem
-             rep(.1*mean_acc, n_sections)) # m_s
+             rep(.1 * mean_acc, n_sections)) # m_s
     up <- c( tar_ages[1] + tao_sd,  #tao0
              1, # mem,
-             rep(10*mean_acc, n_sections)) # alphas
+             rep(10 * mean_acc, n_sections)) # alphas
   }else{
     low <- c(tar_ages[1], #tar$X[1] - (3*tao_sd), # tao0
              0, # mem
@@ -847,7 +847,7 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
       if (depth_to_age){
         if (any(is.na(org_time)) ){
           tmp_mean <- floor( (tail(tar$X,1)- tar$X[1])/(tail(inp$X,1)-inp$X[1]) )
-          ms <- rgamma(1, scale = tmp_mean / shape_acc, shape = shape_acc )
+          ms <- rgamma(1, scale = tail(tmp_mean,1) / 1e+9, shape =1e+9 )
         }else{
           tmp_mean <- diff(approx(depth, org_time, xout = breaks, rule = 2)$y) / diff(breaks)
           ms <- rgamma(1, scale = tail(tmp_mean,1) / 1e+9, shape =1e+9 )
@@ -862,6 +862,7 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
       }else{
         tmp_mean <- floor( (tail(tar$X,1)- tar$X[1])/(tail(inp$X,1)-inp$X[1]) )
         ms <- rgamma(1, scale = tmp_mean/ shape_acc, shape = shape_acc )
+
         for (i in 1:(n_slopes-1)){
           alpha = rgamma(1,scale = scale_acc, shape = shape_acc )
           ms <- c(ms, w * ms[1] + (1-w) * alpha )
@@ -875,7 +876,7 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
 
       }else{
         tmp_mean <- floor( (tail(tar$X,1)- tar$X[1])/(tail(inp$X,1)-inp$X[1]) )
-        ms <- rgamma(1, scale = tmp_mean / shape_acc, shape = shape_acc )
+        ms <- rgamma(1, tail(tmp_mean,1) / 1e+9, shape =1e+9 )
       }
 
         for (i in 1:(n_slopes-1)){
@@ -884,8 +885,6 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
         }
 
     }
-
-
 
     if (double_target){
       return(c(tao0, w, ms,runif(1),runif(1,.1,.5)))
@@ -900,8 +899,9 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
   
   initial_search <- function(){
     x1 <- sampler()
+    print(supp(x1))
+    
     while(!(supp(x1))){
-  
       x1 <- sampler(rerun = TRUE)  
     }
     return(x1)
@@ -949,9 +949,24 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
                        pphi=pphi_eval )
     # measures time in the MCMC
     end.time <- Sys.time()
-    time.taken <- end.time - start.time
-    time.taken
-    print(time.taken)
+    time.taken <- as.numeric(difftime(end.time, start.time, units = "secs"))
+    
+    # Function to format the time taken
+    format_time_taken <- function(time.taken) {
+      if (time.taken < 60) {
+        return(paste(round(time.taken, 2), "seconds"))
+      } else if (time.taken < 3600) {
+        return(paste(round(time.taken / 60, 2), "minutes"))
+      } else if (time.taken < 86400) {
+        return(paste(round(time.taken / 3600, 2), "hours"))
+      } else {
+        return(paste(round(time.taken / 86400, 2), "days"))
+      }
+    }
+    
+    formatted_time <- format_time_taken(time.taken)
+    message_time <- paste("The MCMC run took", formatted_time, "to complete.")
+    cat(message_time)
 
     
     # twalk state
@@ -1188,7 +1203,7 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
   {
     d_w <- density(c[,2])
     
-    y_beta <- dbeta(seq(from=0, to=1, length.out=1000),
+    y_beta <- dbeta(seq(from=.01, to=.99, length.out=1000),
                     m_alpha, m_beta)
     # Determine the combined y-range for setting ylim
     y_range <- c(0,max(c(max(y_beta),max(d_w$y))) )
