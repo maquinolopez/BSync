@@ -21,24 +21,28 @@
 #   2*(x-min(x))/(max(x)-min(x))-1
 # }
 
-range_quantile <- function(x) {
-  q = .95
-  q1 <- quantile(x, 1- (1- q)/2 )
-  q2 <- quantile(x, (1- q)/2)
-  2 * (x - q2) / (q1 - q2) - 1
-}
-
-range <- range_quantile
-
-
-range2 <- function(x){
-  # Calculate mean and standard deviation
-  mu <- mean(x)
-  sigma <- sd(x)
-  
-  # Normalize by standard deviation
-  return((x - mu)/sigma) 
-}
+# range_quantile <- function(x,symetric=TRUE,quantile = .95,lquantile=.025,uquantile = .95) {
+#   if (symetric){
+#     q1 <- quantile(x, 1- (1- q)/2 )
+#     q2 <- quantile(x, (1- q)/2)
+#   } else{
+#     q1 <- quantile(x, lquantile )
+#     q2 <- quantile(x, uquantile)
+#   }
+#   2 * (x - q2) / (q1 - q2) - 1
+# }
+# 
+# range <- range_quantile
+# 
+# 
+# range2 <- function(x){
+#   # Calculate mean and standard deviation
+#   mu <- mean(x)
+#   sigma <- sd(x)
+#   
+#   # Normalize by standard deviation
+#   return((x - mu)/sigma) 
+# }
 
 # Student t distribution
 tdistro <- function(X, Mu, sigma, a, b){
@@ -157,7 +161,9 @@ target_density <-function(tar_ages,tar){
 }
 
 # Plot the density
-density_plot <- function(tar_ages, tar_mt,xlabel,ylabel = "proxy units",add = FALSE,axis=TRUE,flip=FALSE,ylim=TRUE,xlim=TRUE){
+density_plot <- function(tar_ages, tar_mt,xlabel,ylabel = "proxy units",
+                         add = FALSE,axis=TRUE,flip=FALSE,
+                         ylim=TRUE,xlim=TRUE){
   tar_ages_bw <- tar_ages[2] - tar_ages[1] 
   
   if (!add){
@@ -166,7 +172,7 @@ density_plot <- function(tar_ages, tar_mt,xlabel,ylabel = "proxy units",add = FA
         if(ylim[1]==TRUE){
           plot(colMeans(tar_mt),tar_ages , type='l', xlab=ylabel, ylab=xlabel, ylim=c( tar_ages[1],tail(tar_ages,1)),col=rgb(0,0,0,1))    
         }else{
-          plot(colMeans(tar_mt),tar_ages , type='l', xlab=ylabel, ylab=xlabel, ylim=ylim,xlim=xlim,col=rgb(0,0,0,1))  
+          plot(colMeans(tar_mt),tar_ages , type='l', xlab=ylabel, ylab=xlabel, ylim=ylim, xlim=xlim,col=rgb(0,0,0,1))  
         }
       }else{
         if(ylim[1]==TRUE){
@@ -205,12 +211,12 @@ density_plot <- function(tar_ages, tar_mt,xlabel,ylabel = "proxy units",add = FA
     cols <- gray(1-h$counts/max(h$counts),alpha = .4)
     # Plot non-zero rects 
     if (flip){
-      rect(ybottom = tar_ages[i], ytop = tar_ages[i]+tar_ages_bw,
+      rect(ybottom = tar_ages[i], ytop = tar_ages[i] + tar_ages_bw,
            xleft = h$breaks[-1], #head(h$breaks, -1),
            xright = head(h$breaks, -1),# h$breaks[-1],
            col = cols, border = NA)
     }else{
-      rect(xleft = tar_ages[i], xright = tar_ages[i]+tar_ages_bw,
+      rect(xleft = tar_ages[i], xright = tar_ages[i] + tar_ages_bw,
            ybottom = h$breaks[-1], #head(h$breaks, -1),
            ytop = head(h$breaks, -1),# h$breaks[-1],
            col = cols, border = NA)
@@ -268,7 +274,9 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
                    uq =FALSE,
                    double_target = FALSE,
                    depth_to_age = TRUE,
-                   range_f =1, normalizar = TRUE,
+                   range_f =1, normalizar = TRUE, symmetric=TRUE,
+                   quantile = .95,lquantile=.025,uquantile = .95,
+                   section_mean_location = FALSE,
                    iters = 3e+3, burn = 5e+4,thin = 100,
                    continue_run = TRUE, verify_orientation = TRUE,
                    flip_orientation = FALSE,
@@ -281,9 +289,13 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
   #### Define the re-scaling function ####
   
   range <- function(x) {
-    q = .99
-    q1 <- quantile(x, 1- (1- q)/2 )
-    q2 <- quantile(x, (1- q)/2)
+    if (symmetric){
+      q1 <- quantile(x, 1- (1- q)/2 )
+      q2 <- quantile(x, (1- q)/2)
+    } else{
+      q1 <- quantile(x, uquantile )
+      q2 <- quantile(x, lquantile)
+    }
     2 * (x - q2) / (q1 - q2) - 1
   }
   
@@ -340,30 +352,23 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
 
   #### Load target ####
   # Note: create the object inp which only containes the variable which will be alinge and the scale either depth or age
-  if (!double_target){
-    if (!uq){ # Load target when only age estimates are provided
-      tar <- load_file_from_folder(Target, folder) 
-      ori_col_names <- colnames(tar)
-      tar <- data.frame(X=tar$Age,ProxyValue = tar$ProxyValue)
-      tar_ages <- tar[,1]
-    }else{# Load target when iterations of an age-depth model are provided
-      tar <- read.table(paste0(folder,Target,'.txt'),header = T)
-      tar <- as.matrix(tar)
-      # Divide the data base into the ages and the iterations
-      tar_ages <- tar[,1]
-      tar <- t(tar[,-1]) # invert the matrix
-      tar_mt <- tar
-      tar_mt <-  range_T(tar)
-      
-      # localizador is the function which tell the target_densities function which density to use
-      localizador <- function(x)(approx(tar_ages,seq(1,length(tar_ages)),method = 'constant',xout = x)$y)
-      
-      # Create a data frame with depth and mean
-      # tar <- data.frame(X = as.numeric(tar_ages), ProxyValue = as.numeric(colMeans(tar_mt)) )
-      tar <- data.frame(X = as.numeric(tar_ages), ProxyValue = apply(tar_mt, 2, median) )
-      
-      }  
-  }else{
+  if (uq){
+    tar <- read.table(paste0(folder,Target,'.txt'),header = T)
+    tar <- as.matrix(tar)
+    # Divide the data base into the ages and the iterations
+    tar_ages <- tar[,1] # save ages
+    tar <- t(tar[,-1]) # invert the matrix
+    tar_mt <- tar
+    tar_mt <-  range_T(tar)
+    
+    # localizador is the function which tell the target_densities function which density to use
+    localizador <- function(x)(approx(tar_ages,seq(1,length(tar_ages)),method = 'constant',xout = x)$y)
+    
+    # Create a data frame with depth and mean
+    # tar <- data.frame(X = as.numeric(tar_ages), ProxyValue = as.numeric(colMeans(tar_mt)) )
+    tar <- data.frame(X = as.numeric(tar_ages), ProxyValue = apply(tar_mt, 2, median) )
+    
+  }else if (double_target){
     # Read the CSV file
     tar <- read.csv(paste0(folder,Target,'.csv'), header = T)
     # Rename the columns
@@ -373,7 +378,15 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
     tar <- data.frame(X=tar$Age,ProxyValue1 = tar$target1,ProxyValue2 = tar$target2, ProxyValue = c(.47*tar$target1 + .53*tar$target2) )
     # save target ages for future use
     tar_ages <- tar[,1]
+  }else { # this is for the simple version
+    tar <- load_file_from_folder(Target, folder) 
+    ori_col_names <- colnames(tar)
+    tar <- data.frame(X=tar$Age,ProxyValue = tar$ProxyValue)
+    tar_ages <- tar[,1]
   }
+  
+  
+
   
   if (T_age_kyr){
     tar_ages <- tar$X * 1000
@@ -610,8 +623,8 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
     if(!is.numeric(tao_mean)) {
       tao_mean <- as.numeric(readline("Enter a numeric value for tao_mean: ")) 
     }
-    if(!is.numeric(tau_sd)) {
-      tau_sd <- as.numeric(readline("Enter a numeric value for tau_sd: "))
+    if(!is.numeric(tao_sd)) {
+      tao_sd <- as.numeric(readline("Enter a numeric value for tau_sd: "))
     }
   }
   
@@ -627,10 +640,10 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
   if (depth_to_age){
     low <- c(tar_ages[1],#tar$X[1] - (3*tao_sd), # tao0
              0, # mem
-             rep(.1 * mean_acc, n_sections)) # m_s
+             rep(0.0 * mean_acc, n_sections)) # m_s
     up <- c( tar_ages[1] + tao_sd,  #tao0
              1, # mem,
-             rep(10 * mean_acc, n_sections)) # alphas
+             rep(Inf * mean_acc, n_sections)) # alphas
   }else{
     low <- c(tar_ages[1], #tar$X[1] - (3*tao_sd), # tao0
              0, # mem
@@ -672,6 +685,32 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
   # Loads the C++ functions
   Rcpp::sourceCpp("~/GitHub/BSynch/targetDensity.cpp")
   
+  # Function to ajust means
+  # Cut ages into breaks and calculate mean per window in tar
+  # Note that tar groups can be calculated before hand
+  # breaks_tar = seq(tar$X[1],tail(tar$X,1),length.out= 4)#as.integer(n_sections/10) )
+  # breaks_tar = c(tar$X[1], 10000, 20000,35000  ,tail(tar$X,1))
+  # tar$age_group <- cut(tar$X, breaks = breaks_tar, include.lowest = TRUE)
+  # mean_tar <- aggregate(ProxyValue ~ age_group, data = tar, mean)
+  # 
+  # adjust_means <- function(tar  , inp, inp_ages , breaks ,mean_tar  ) {
+  #   # Apply the same breaks to inp
+  #   inp$age_group <- cut(inp_ages, breaks = breaks, include.lowest = TRUE)
+  #   mean_inp <- aggregate(ProxyValue ~ age_group, data = inp, mean)
+  #   
+  #   # Merge mean_tar with mean_inp to align means
+  #   merged_data <- merge(mean_tar, mean_inp, by = "age_group", suffixes = c(".tar", ".inp"))
+  # 
+  #   # Calculate the difference between the means in tar and inp
+  #   merged_data$difference <- merged_data$ProxyValue.tar - merged_data$ProxyValue.inp
+  #   # Create a lookup table for the differences
+  #   difference_lookup <- setNames(merged_data$difference, merged_data$age_group)
+  #   # Adjust inp data points to match means in tar windows
+  #   adjusted_inp <- inp$data + difference_lookup[as.character(inp$age_group)]
+  #   return(as.numeric(adjusted_inp))
+  # }
+  
+  
   # tau function (the function which gives the value in the target scale)
   tau <- function(x, param){
     tau0 <- param[1]
@@ -712,6 +751,7 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
     multi_last = 1
   }
   
+  # Likelihood functions
   if (uq){
      n_kde <- length(tar_mt[,1])
      sd_convertor <- 1/(1.06*n_kde^(-1/5))
@@ -724,8 +764,18 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
        l_last <- multi_last * dnorm(tail(t_times,1),t_last_mean,t_last_sd,log=T)
        # get the values of the target at the require times.
        loca <- as.integer(localizador(t_times))
+       
+       # if (section_mean_location){
+       #   inp_proxy <- adjust_means(tar,inp, t_times ,breaks_tar,mean_tar )  
+       # }else{
+       #   inp_proxy <- inp$ProxyValue
+       # }
+       
       
-       ll <- loglikelihood_uqCpp(params, inp$ProxyValue, bandwidths, tar_mt, sd_convertor ,loca)
+       ll <- loglikelihood_uqCpp(params, 
+                                 # inp_proxy,
+                                 inp$ProxyValue,
+                                 bandwidths, tar_mt, sd_convertor ,loca)
 
        ll <- ll + l_last
        return(ll)
@@ -740,10 +790,17 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
          
          t_times <- tauC(inp$X, params, b_length, breaks )
          l_last <- multi_last * dnorm(tail(t_times,1),t_last_mean,t_last_sd,log=T)
+         # This like is for testing only
+         # if (section_mean_location){
+         #   inp_proxy <- adjust_means(tar,inp, t_times ,breaks_tar,mean_tar )  
+         # }else{
+         #   inp_proxy <- inp$ProxyValue
+         # }
          
          
          ll <- loglikelihoodC(params,
                         tar_prox,inp$X,inp$ProxyValue,tar$X,
+                        # tar_prox,inp$X, inp_proxy, tar$X,
                         my_sd, ta, tb, 
                         b_length, breaks)
          ll <- l_last + ll
@@ -763,11 +820,19 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
          param1 <- param[-length(param0)]
          return( -(logprior(param1) + loglikelihood(param1,ProxyValue,my_sd) + p_sd)  )
        }
-     }else{
+     }else{ # This is for the simple 
        loglikelihood <- function(params,tar_prox=tar$ProxyValue,my_sd){
          t_times <- tauC(inp$X,params,b_length,breaks )
          l_last <- multi_last * dnorm(tail(t_times,1),t_last_mean,t_last_sd,log=T)
+         
+         # if (section_mean_location){
+         #   inp_proxy <- adjust_means(tar,inp, t_times ,breaks_tar,mean_tar )  
+         # }else{
+         #   inp_proxy <- inp$ProxyValue
+         # }
+         
          ll <- loglikelihoodC(params,
+                        # tar_prox,inp$X, inp_proxy, tar$X, # this like was to test the moving mean
                         tar_prox,inp$X,inp$ProxyValue,tar$X,
                         my_sd, ta, tb, 
                         b_length, breaks)
@@ -794,14 +859,13 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
       alp <- alphas(params[-length(params)])
       age_lim <- tauC(tail(inp$X,1),params[-length(params)],b_length,breaks)
       ifelse(all( c(params > low, params < up) ) & 
-               all( alp > 0 ) &   my_sd >0 &
+               all( alp > 0 ) &   my_sd >0 & my_sd < 0.3 &
                age_lim < mx_age ,
              return(TRUE), 
              return(FALSE)
       )
     }
-  }else{
-    if (uq){
+  }else if (uq){
       supp <- function(params){
         alp <- alphas(params)
         age_lim <- tauC(tail(inp$X,1),params,b_length,breaks)
@@ -815,14 +879,14 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
         )
       }
     }else{
+      # support of simple aliment
       supp <- function(params){
         my_sd = tail(params,1)
         params =  params[-length(params)]
         alp <- alphas(params)
         age_lim <- tauC(tail(inp$X,1),params,b_length,breaks)
-        
         ifelse(all( c(params > low, params < up) ) & 
-                 all( alp > 0 ) &   my_sd >0 &
+                 all( alp > 0 ) &   my_sd >0 & my_sd < 0.3 &
                  age_lim < mx_age & 
                  age_lim > last_tiepoint,
                return(TRUE), 
@@ -830,77 +894,86 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
         )
       }
     }
-  }
+  
   
   # generates initial points.
   sampler <-  function(rerun=FALSE){
     # generate to0
     if (depth_to_age ){
-      tao0 <- runif(1, low[1],low[1]+10) 
+      if (any(is.na(org_time)) ){
+        tao0 <- runif(1, low[1], low[1]+1) 
+      }else{
+        if(org_time[1] >= low[1]){
+          tao0 <- runif(1, org_time[1], org_time[1]+1) 
+        }else{
+          tao0 <- runif(1, low[1], low[1]+1) 
+        }
+      }
     }else{
       tao0 <- runif(1, inp$X[1],inp$X[1]+10)
     }
     # memory value
-    w <-  runif(n = 1, min = 0, max = 1)
+    w <-  runif(n = 1, min = 0, max = 1e-5)
     # Generate slopes
     if(rerun){
       if (depth_to_age){
         if (any(is.na(org_time)) ){
           tmp_mean <- floor( (tail(tar$X,1)- tar$X[1])/(tail(inp$X,1)-inp$X[1]) )
-          ms <- rgamma(1, scale = tail(tmp_mean,1) / 1e+9, shape =1e+9 )
+          ms <- rgamma(1, scale = tail(tmp_mean,1) / 1e+6, shape =1e+6 )
         }else{
           tmp_mean <- diff(approx(depth, org_time, xout = breaks, rule = 2)$y) / diff(breaks)
-          ms <- rgamma(1, scale = tail(tmp_mean,1) / 1e+9, shape =1e+9 )
-
+          ms <- rgamma(length(tmp_mean), scale = tmp_mean / 1e+3, shape =1e+3 )
         }
-        tmp_mean <- floor( (tail(tar$X,1)- tar$X[1])/(tail(inp$X,1)-inp$X[1]) )
-        ms <- rgamma(1, scale = tmp_mean / shape_acc, shape = shape_acc )
-        for (i in 1:(n_slopes-1)){
-          alpha = rgamma(1, scale = tmp_mean/ shape_acc, shape = shape_acc )
-          ms <- c(  w * ms[1] + (1-w) * alpha, ms)
+        if (length(tmp_mean) == 1){        
+          for (i in 1:(n_slopes-1)){
+            alpha = rgamma(1, scale = tmp_mean/shape_acc, shape = shape_acc )
+            ms <- c(  w * ms[1] + (1-w) * alpha, ms)
+            }
         }
       }else{
         tmp_mean <- floor( (tail(tar$X,1)- tar$X[1])/(tail(inp$X,1)-inp$X[1]) )
         ms <- rgamma(1, scale = tmp_mean/ shape_acc, shape = shape_acc )
 
-        for (i in 1:(n_slopes-1)){
+        for (i in (n_slopes-1):1){
           alpha = rgamma(1,scale = scale_acc, shape = shape_acc )
           ms <- c(ms, w * ms[1] + (1-w) * alpha )
           }
       }
     }else{
       if (depth_to_age){
-        # Calculate slopes of the lines generated by these points
-        tmp_mean <- diff(approx(depth, org_time, xout = breaks, rule = 2)$y) / diff(breaks)
-        ms <- rgamma(1, scale = tail(tmp_mean,1) / 1e+9, shape =1e+9 )
-
+        if (any(is.na(org_time)) ){
+          tmp_mean <- floor( (tail(tar$X,1)- tar$X[1])/(tail(inp$X,1)-inp$X[1]) )
+          ms <- rgamma(1, scale = tail(tmp_mean,1) / 1e+3, shape =1e+3 )
+        }else{
+          tmp_mean <- diff(approx(depth, org_time, xout = breaks, rule = 2)$y) / diff(breaks)
+          ms <- rgamma(length(tmp_mean), scale = tmp_mean / 1e+3, shape =1e+3 )
+        }
       }else{
         tmp_mean <- floor( (tail(tar$X,1)- tar$X[1])/(tail(inp$X,1)-inp$X[1]) )
-        ms <- rgamma(1, tail(tmp_mean,1) / 1e+9, shape =1e+9 )
+        ms <- rgamma(1, tail(tmp_mean,1) / 1e+3, shape =1e+3 )
       }
-
-        for (i in 1:(n_slopes-1)){
-          alpha = rgamma(1, scale = tmp_mean[n_slopes-i]/ 1e+8, shape = 1e+8 )
+      # Here we generate the rest of the slopes
+      if (length(tmp_mean) == 1){
+        for (i in (n_slopes-1):1){
+          alpha = rgamma(1, scale = tmp_mean/ shape_acc, shape = shape_acc )
           ms <- c(  w * ms[1] + (1-w) * alpha, ms)
         }
-
+      }
     }
-
+    
     if (double_target){
-      return(c(tao0, w, ms,runif(1),runif(1,.1,.5)))
+      return(c(tao0, w, ms,runif(1),runif(1,.05,.5)))
     }else{
       if (uq){
         return(c(tao0, w, ms))  
       }else{
-        return(c(tao0, w, ms,runif(1,.1,.5)))  
+        return(c(tao0, w, ms,runif(1,.05,.5)))  
       }
     }
   }
   
   initial_search <- function(){
     x1 <- sampler()
-    print(supp(x1))
-    
     while(!(supp(x1))){
       x1 <- sampler(rerun = TRUE)  
     }
@@ -937,7 +1010,7 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
     message("Initiating the t-walk process...")
     burn = burn * length(x1)
     pphi_eval <-  min(length(x1), 4)/length(x1)
-    message(paste0('The Phi value is :' , pphi_eval))
+    # message(paste0('The Phi value is :' , pphi_eval))
     # measures time in the MCMC
     start.time <- Sys.time()
     
@@ -1385,13 +1458,13 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
       y_lim = c(-3.2,3.2)
     }
     
+    # Plot the target 
     if (uq){
       density_plot(tar_ages ,tar_mt, xlabel='',flip = F , ylim=y_lim,xlim=common_x_lim)
-    }else{
-      if(double_target){
-        color_gray1 = rgb(0, 0, 0, 0.3) # gray1 with 50% transparency
-        color_gray = rgb(0.5, 0.5, 0.5, 0.3) # gray with 50% transparency
-        color_red4 = rgb(139/255, 0, 0, 0.3) # red4 with 50% transparency
+      }else if(double_target){
+        color_gray1 = rgb(0, 0, 0, 0.2) # gray1 with 50% transparency
+        color_gray = rgb(0.5, 0.5, 0.5, 0.2) # gray with 50% transparency
+        color_red4 = rgb(139/255, 0, 0, 0.2) # red4 with 50% transparency
         
         # w_t = mean(w_tar)
         w_t = median(w_tar)
@@ -1400,23 +1473,31 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
              xlim = common_x_lim,
              axes=FALSE,
              col=rgb(0,0,0,.0),cex=.2)
-        lines(tar$X,range_T(tar$ProxyValue1), type='l',lty=1 ,col=color_gray,cex=.2)
-        lines(tar$X,range_T(tar$ProxyValue2), type='l', lty=1 ,col=color_gray1,cex=.2)
-        lines(tar$X,tar$ProxyValue, type='l', lty=1 ,col=color_red4,cex=.2)
+        lines(tar$X,range_T(tar$ProxyValue1), type='l',lty=1 ,col=color_gray,cex=.15)
+        lines(tar$X,range_T(tar$ProxyValue2), type='l', lty=1 ,col=color_gray1,cex=.15)
+        lines(tar$X,tar$ProxyValue, type='l', lty=1 ,col=color_red4,cex=.15)
         
       }else{
         plot(tar$X,tar$ProxyValue, type='l', xlab='', ylab="Rescaled proxy", xaxt='n',
              xlim = common_x_lim,
              axes=FALSE,
-             col=rgb(0,0,0,.3),cex=.2)
+             col=rgb(0,0,0,.3),cex=.15)
       }
-    }  
+     
     axis(side=2)
-    lines(mean_tau,inp$ProxyValue, col=rgb(0,0,1,.8),lty=1,type = 'l',cex=.2)
+    lines(mean_tau,inp$ProxyValue, col=rgb(0,0,1,.8), lty=1, type = 'l', cex=.2)
+    quantiles_975 <- apply(tau_mat2, 2, quantile, probs = 0.975)
+    quantiles_025 <- apply(tau_mat2, 2, quantile, probs = 0.025)
     
-    # polygon(x = c(quants2[1,], rev(quants2[3,])), 
-    #         y = c(inp$ProxyValue, rev(inp$ProxyValue)), 
-    #         col = rgb(0, 0, 1, 0.2), border = NA)
+    # Plot lines for quantiles
+    segments(y0=inp$ProxyValue, x0=quantiles_975, 
+            y1=inp$ProxyValue, x1=quantiles_025,
+            col=rgb(0,0,1,0.2),cex=.15)
+
+    
+
+    
+    
     
     if (!any(is.na(org_time))) {
 
@@ -1432,11 +1513,13 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
                cex=0.8,bg=NA,bty='n')
       }else{
         legend("bottomright", lty=rep(1,1,1), c('Target', "Input post process",'Input orig time scale'), 
-               col=c(rgb(0,0,0,.3),rgb(0,0,1,.5),rgb(1,0,1,.4)), cex=0.8, bg=NA, bty="n")
+               col=c(rgb(0,0,0,.3),rgb(0,0,1,.5),rgb(1,0,1,.2)), cex=0.8, bg=NA, bty="n")
       }
 
     }else{
-      legend("bottomright", lty=rep(1,2), c("input", "target"), col=c(1,4), bg=NA, bty="n")
+      # legenda de age-depth without original chronology
+      legend("bottomright", lty=rep(1,2), c(Target , Input), 
+             col=c(rgb(0,0,0,.3),rgb(0,0,1,.3)), bg=NA, bty="n")
     }
     grid(nx = NULL, ny = NULL, col = "lightgray", lty = "dotted") 
     usr <- par("usr")

@@ -1,7 +1,26 @@
 #include <Rcpp.h>
 // #include "targetDensity.cpp"
+#include <chrono>
+#include <iostream>
+#include <iomanip>
 using namespace Rcpp;
 using namespace std;
+using namespace std::chrono;
+
+// Function to format the duration
+std::string format_duration(double milliseconds) {
+  if (milliseconds < 1000) {
+    return std::to_string(milliseconds) + " ms";
+  } else if (milliseconds < 60000) {
+    return std::to_string(milliseconds / 1000) + " seconds";
+  } else if (milliseconds < 3600000) {
+    return std::to_string(milliseconds / 60000) + " minutes";
+  } else if (milliseconds < 86400000) {
+    return std::to_string(milliseconds / 3600000) + " hours";
+  } else {
+    return std::to_string(milliseconds / 86400000) + " days";
+  }
+}
 
 
 double IntProd(NumericVector x) {
@@ -309,7 +328,8 @@ List OneMove(int dim, Function Obj, Function Supp, NumericVector x, double U, Nu
 // Assume the functions Simh1, Simh2, Simh3, Simh4, G3U, G4U, Simfbeta, and OneMove are already defined
 
 // [[Rcpp::export]]
-List Runtwalk(int dim, Function Obj, Function Supp, NumericVector x0, NumericVector xp0, int niter, int burnin, int thin,
+List Runtwalk(int dim, Function Obj, Function Supp, NumericVector x0, 
+              NumericVector xp0, int niter, int burnin, int thin,
               double at=6, double aw=1.5, double pphi=0.5, double F1=0.4918, 
               double F2= 0.9836, 
               double F3= 0.9918) {
@@ -322,16 +342,6 @@ List Runtwalk(int dim, Function Obj, Function Supp, NumericVector x0, NumericVec
   NumericMatrix samplesp(niter, dim);
   NumericVector Us(niter);
   NumericVector Ups(niter);
-  
-  // Initialize the progress bar
-  int total_iter = burnin +  niter * thin;
-  int progress = 0;
-  
-  // Print the message
-  Rcout << "Total iterations: " << total_iter << "\n";
-  Rcout << "Burn-in period: " << burnin << "\n";
-  Rcout << "Saving every " << thin << " iterations\n";
-  Rcout << "Number of iterations to be saved: " << niter << "\n";
   
   // Function to print the progress bar
   auto print_progress = [](int progress, int total) {
@@ -346,6 +356,19 @@ List Runtwalk(int dim, Function Obj, Function Supp, NumericVector x0, NumericVec
     Rcout << "] " << int(progress / (double)total * 100.0) << " %\r";
     Rcout.flush();
   };
+  
+  // Initialize the progress bar
+  int total_iter = burnin +  niter * thin;
+  int progress = 0;
+  
+  // Print the message
+  Rcout << "Total iterations: " << total_iter << "\n";
+  Rcout << "Burn-in period: " << burnin << "\n";
+  Rcout << "Saving every " << thin << " iterations\n";
+  Rcout << "Number of iterations to be saved: " << niter << "\n";
+  
+  // Start timing for burn-in phase
+  auto start_burnin = high_resolution_clock::now();
   
   for(int burn = 0; burn < burnin; burn++) {
     List move = OneMove(dim, Obj, Supp, x, U, xp, Up, at, aw, pphi, F1, F2, F3);
@@ -369,8 +392,31 @@ List Runtwalk(int dim, Function Obj, Function Supp, NumericVector x0, NumericVec
     print_progress(progress, total_iter);
   }
   
-  // Announce completion of burn-in phase
+  // Stop timing for burn-in phase
+  auto stop_burnin = high_resolution_clock::now();
+  auto duration_burnin = duration_cast<milliseconds>(stop_burnin - start_burnin).count();
+  
+  // Estimate remaining time based on burn-in duration
+  double estimated_total_time = (duration_burnin / (double)burnin) * (niter * thin);
+  
+  // Announce completion of burn-in phase and estimated remaining time
   Rcout << std::endl << "Burn-in period completed." << std::endl;
+  Rcout << "Estimated time remaining: " << format_duration(estimated_total_time) << std::endl;
+	
+	// Calculate the estimated finish time using high_resolution_clock
+	auto estimated_finish_time_high_res = std::chrono::high_resolution_clock::now() + std::chrono::milliseconds(static_cast<long>(estimated_total_time));
+	
+	// Convert high_resolution_clock::time_point to system_clock::time_point
+	auto estimated_finish_time_sys = std::chrono::system_clock::now() + std::chrono::duration_cast<std::chrono::milliseconds>(estimated_finish_time_high_res.time_since_epoch() - std::chrono::high_resolution_clock::now().time_since_epoch());
+	
+	// Convert the estimated finish time to a time_t for easy formatting
+	auto finish_time_t = std::chrono::system_clock::to_time_t(estimated_finish_time_sys);
+	
+	// Format and print the estimated finish time
+	std::cout << "Estimated finish time: " << std::put_time(std::localtime(&finish_time_t), "%Y-%m-%d %H:%M:%S") << std::endl;
+	
+	  
+  auto start_sampling = high_resolution_clock::now();
   
   for(int iter = 0; iter < niter; ) {
     for(int thinIter = 0; thinIter < thin; thinIter++) {
@@ -404,22 +450,15 @@ List Runtwalk(int dim, Function Obj, Function Supp, NumericVector x0, NumericVec
     Ups(iter) = Up;
 
     iter++;
-
-    
-    // Debugging
-    // Print values at specific intervals
-    // if (iter % (niter / 10) == 0) {
-    //   Rcout << "Iteration: " << iter << std::endl;
-    //   Rcout << "x: " << x << std::endl;
-    //   Rcout << "xp: " << xp << std::endl;
-    //   Rcout << "U: " << U << std::endl;
-    //   Rcout << "Up: " << Up << std::endl;
-    // }
-
   }
   
-  // Finalize the progress bar
-  Rcout << std::endl;
+  // Stop timing for sampling phase
+  auto stop_sampling = high_resolution_clock::now();
+  auto duration_sampling = duration_cast<milliseconds>(stop_sampling - start_sampling).count();
+  
+  // Finalize the progress bar and total time taken
+  Rcout << std::endl << "Sampling completed in: " << format_duration(duration_sampling) << std::endl;
+  
   
   
   return List::create(Named("dim")=dim, Named("Tr")= niter ,Named("output") = samples, Named("outputp") = samplesp, Named("Us") = Us, Named("Ups") = Ups);
