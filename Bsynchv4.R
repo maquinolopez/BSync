@@ -88,7 +88,7 @@ load_file_from_folder <- function(file_name, folder) {
       }
       if(!identical(names(fil), c("Depth", "Age", "ProxyValue"))) {
         names(fil) <- c("Depth", "Age", "ProxyValue")
-        warning("TXT file headers modified to match required format")
+        # warning("TXT file headers modified to match required format")
       }
     }
     return(fil)
@@ -224,7 +224,7 @@ density_plot <- function(tar_ages, tar_mt,xlabel,ylabel = "proxy units",
   }
 }
 
-# baypass filter
+# bypass filter
 create_bypass_filter <- function(x, y, thresholds){
     x_t = x
 
@@ -258,6 +258,32 @@ create_bypass_filter <- function(x, y, thresholds){
     return(best_cutoff)
   }
   
+# Extract slopes from input
+input_slopes <- function(inp, breaks) {
+  # Extract x and y values from the first and second columns of inp
+  x_values <- inp[[1]]
+  y_values <- inp[[2]]
+  
+  # Initialize a vector to store slopes
+  slopes <- numeric(length(breaks) - 1)
+  
+  # Loop through the breaks and calculate the slopes between adjacent break points
+  for (i in 1:(length(breaks) - 1)) {
+    # Find the closest x-values and corresponding y-values at the breaks
+    x1 <- breaks[i]
+    x2 <- breaks[i + 1]
+    
+    # Use linear interpolation to find the corresponding y-values
+    y1 <- approx(x_values, y_values, x1)$y
+    y2 <- approx(x_values, y_values, x2)$y
+    
+    # Calculate the slope between these two points
+    slopes[i] <- (y2 - y1) / (x2 - x1)
+  }
+  
+  # Return the vector of slopes
+  return(slopes)
+}
 
 ## BSynch function
 
@@ -275,7 +301,7 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
                    double_target = FALSE,
                    depth_to_age = TRUE,
                    range_f =1, normalizar = TRUE, symmetric=TRUE,
-                   quantile = .95,lquantile=.025,uquantile = .95,
+                   quantile_val = .95,lquantile=.025,uquantile = .95,
                    section_mean_location = FALSE,
                    iters = 3e+3, burn = 5e+4,thin = 100,
                    continue_run = TRUE, verify_orientation = TRUE,
@@ -284,14 +310,23 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
                    bw_filter_hi_corr = FALSE, filter_cuyoff = TRUE,
                    last_tiepoint = TRUE,
                    twalk_fol = "~/GitHub/BSynch/",
-                   run = TRUE
+                   run = TRUE,
+                   prior_acc_mean=TRUE,
+                   plot_orig = TRUE, 
+                   col.interv = rgb(30/255, 144/255, 255/255,.55),
+                   plot.tar_lines = FALSE,
+                   col.tar = rgb(255/255, 127/255, 14/255,.55), 
+                   col.tar1 = rgb(0/255, 100/255, 0/255,.15),
+                   col.tar2 = rgb(214/255, 39/255, 40/255,.15), 
+                   col.ini_model = rgb(128/255, 0/255, 128/255,.55),
+                   grid_col = "lightgray"
 ){ 
   #### Define the re-scaling function ####
   
   range <- function(x) {
     if (symmetric){
-      q1 <- quantile(x, 1- (1- q)/2 )
-      q2 <- quantile(x, (1- q)/2)
+      q1 <- quantile(x, 1- (1- quantile_val)/2 )
+      q2 <- quantile(x, (1- quantile_val)/2)
     } else{
       q1 <- quantile(x, uquantile )
       q2 <- quantile(x, lquantile)
@@ -316,6 +351,24 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
   inp <- load_file_from_folder(Input, folder) 
   # Remove NAs
   # inp <- inp[complete.cases(inp), ]
+  
+  # Get the prior accumulations from older age model if prior_acc_mean is true
+  
+  if (prior_acc_mean && !any(is.na(inp[[2]])) && !any(is.na(inp[[1]])) ){
+    breaks <- seq(inp[[1]][1],tail(inp[[1]],1), length.out = n_sections+1)
+    mean_acc <- input_slopes(inp, breaks)  
+      # If depth is given in meters, convert it to cm by div by 100
+    if (!depth_cm) {
+      mean_acc <- mean_acc / 100
+    }
+    
+    # If age is given in kyr (thousands of years), convert to years by multiplying by 1000
+    if (age_kyr) {
+      mean_acc <- mean_acc * 1000
+    }
+  
+  }
+  
 
   # Note: create the object inp which only containes the variable which will be alinge and the scale either depth or age
   if (depth_cm){
@@ -394,7 +447,6 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
   }else{
     tar_ages <- tar$X
   }
-  
 
   #### Check that the records are properly aligned ####
   if (flip_orientation){
@@ -629,7 +681,23 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
   }
   
   # parameter for prior of alphas 
-  scale_acc = mean_acc / shape_acc
+  
+  if (length(mean_acc)==1){
+    scale_acc = mean_acc / shape_acc  
+  }else{
+    # Standard deviation is provided as a constant
+    sd_age_prior <- 500 / diff(breaks)[1]
+
+    # Calculate the shape parameter k for each value in the mean_acc vector
+    shape_acc <- (mean_acc / sd_age_prior)^2
+
+    # Calculate the scale parameter theta for each value in the mean_acc vector
+    scale_acc <- (sd_age_prior^2) / mean_acc
+  }
+
+
+  
+  
   
   # parameters for memory 
   m_alpha = strength_mem * mean_mem 
@@ -640,10 +708,10 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
   if (depth_to_age){
     low <- c(tar_ages[1],#tar$X[1] - (3*tao_sd), # tao0
              0, # mem
-             rep(0.0 * mean_acc, n_sections)) # m_s
+             rep(0.0 , n_sections)) # alphas
     up <- c( tar_ages[1] + tao_sd,  #tao0
              1, # mem,
-             rep(Inf * mean_acc, n_sections)) # alphas
+             rep(Inf, n_sections)) # alphas
   }else{
     low <- c(tar_ages[1], #tar$X[1] - (3*tao_sd), # tao0
              0, # mem
@@ -790,14 +858,7 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
          
          t_times <- tauC(inp$X, params, b_length, breaks )
          l_last <- multi_last * dnorm(tail(t_times,1),t_last_mean,t_last_sd,log=T)
-         # This like is for testing only
-         # if (section_mean_location){
-         #   inp_proxy <- adjust_means(tar,inp, t_times ,breaks_tar,mean_tar )  
-         # }else{
-         #   inp_proxy <- inp$ProxyValue
-         # }
-         
-         
+  
          ll <- loglikelihoodC(params,
                         tar_prox,inp$X,inp$ProxyValue,tar$X,
                         # tar_prox,inp$X, inp_proxy, tar$X,
@@ -855,10 +916,12 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
     supp <- function(params){
       my_sd = tail(params,1)
       params =  params[-length(params)]
-
+      
       alp <- alphas(params[-length(params)])
       age_lim <- tauC(tail(inp$X,1),params[-length(params)],b_length,breaks)
-      ifelse(all( c(params > low, params < up) ) & 
+    
+      
+      ifelse( all(params > low) & all(params < up)  & 
                all( alp > 0 ) &   my_sd >0 & my_sd < 0.3 &
                age_lim < mx_age ,
              return(TRUE), 
@@ -870,7 +933,7 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
         alp <- alphas(params)
         age_lim <- tauC(tail(inp$X,1),params,b_length,breaks)
         
-        ifelse(all( c(params > low, params < up) ) & 
+        ifelse(all(params > low) & all(params < up)  & 
                  all( alp > 0 ) & 
                  age_lim < mx_age & 
                  age_lim > last_tiepoint,
@@ -885,8 +948,8 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
         params =  params[-length(params)]
         alp <- alphas(params)
         age_lim <- tauC(tail(inp$X,1),params,b_length,breaks)
-        ifelse(all( c(params > low, params < up) ) & 
-                 all( alp > 0 ) &   my_sd >0 & my_sd < 0.3 &
+        ifelse(all(params > low) & all(params < up)  & 
+                 all( alp > 0 ) &   my_sd >0 & my_sd < 1 &
                  age_lim < mx_age & 
                  age_lim > last_tiepoint,
                return(TRUE), 
@@ -1203,10 +1266,11 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
     #par(mar=c(2.3,1.1,1.1,1.1) )
     #par(mgp=c(1.1, 0.5, 0))
     plot(energy,xlab='iterations',ylab='Log of Objective',type = 'l',
-         col="grey50",axes=F)
-  # lines(energy2,col="grey60")
+         col=rgb(169/255, 169/255, 169/255) ,axes=F)
     axis(side=1)
     axis(side=2)
+    legend( 'topright',legend = paste("IAT:", as.integer(iat)),
+            ,bg=NA, bty="n",cex=.75)
   }
   
   ## Plot posterior and prior of accumulations
@@ -1215,7 +1279,7 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
     par(mar=c(2.3,1.1,1.1,1.1) )
     d_m <- density(c[,-c(1,2)])
     # Get y-values of the gamma curve across the specified x-range
-    y_gamma <- dgamma(seq(from=0, to=mean_acc +  5*(shape_acc*scale_acc), length.out=1000),
+    y_gamma <- dgamma(seq(from=0, to=max(mean_acc) +  5*max(shape_acc *scale_acc), length.out=1000),
                       shape = shape_acc, scale = scale_acc)
     
     # Determine the combined y-range for setting ylim
@@ -1223,8 +1287,8 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
     # y_range <- c(5,40 )
     
     if(depth_to_age){
-      low_lim_acc = 0
-      up_lim_acc = mean_acc + 2 * (shape_acc*scale_acc)
+      low_lim_acc = 1e-20
+      up_lim_acc = max(mean_acc) + 3 * max(shape_acc*scale_acc)
     }else{
       low_lim_acc = .25
       up_lim_acc = 4
@@ -1234,8 +1298,8 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
     x_values <- seq(low_lim_acc, up_lim_acc, length.out = 100)
     
     # Calculate gamma values for the sequence
-    gamma_values <- dgamma(x_values, shape = shape_acc, scale = scale_acc)
-    
+    gamma_values <- dgamma(x_values, shape = max(shape_acc), scale = max(scale_acc) )
+
     # Calculate the maximum y value from both the gamma and the density plot to set y-axis limits
     max_y <- max(c(gamma_values, d_m$y[d_m$x > low_lim_acc & d_m$x < up_lim_acc]))
     
@@ -1261,17 +1325,25 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
     
     polygon(c(low_lim_acc, density_x, up_lim_acc), 
             c(0, density_y, 0), 
-            col=rgb(0, 0, 1, 0.3), border=NA)
+            col=col.interv, border=NA)
     
     # Re-draw the gamma curve on top of the filled area
     lines(x_values, gamma_values, col='lightgray')
     
     # Re-draw the density plot on top of the filled area
-    lines(density_x, density_y, col=rgb(0, 0, 1, 0.3))
+    lines(density_x, density_y, col=col.interv)
     
     axis(side=1)
+    legend( 'topright',legend = c(
+      paste0('mean_acc: ',round(mean(mean_acc) ,2) ),
+      paste0('shape_acc: ',round(mean(shape_acc),2) ),
+      paste0('n_sections: ',n_sections)
+    ),
+            ,bg=NA, bty="n",cex=.75)
+    
+    
   }
-  
+
   ## plot memory prior vs posteriors
   {
     d_w <- density(c[,2])
@@ -1300,7 +1372,7 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
       relevant_indices <- x > 0 & x < 1
       polygon(c(x[relevant_indices], rev(x[relevant_indices])),
               c(rep(0, sum(relevant_indices)), rev(y[relevant_indices])), 
-              col=rgb(0, 0, 1, 0.3), border=NA)
+              col = col.interv, border=NA)
     })
     
     # Replot the beta curve for clarity
@@ -1308,10 +1380,17 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
     
     # Replot the density plot lines for the beta distribution
     lines(d_w$x[d_w$x > 0 & d_w$x < 1],
-          d_w$y[d_w$x > 0 & d_w$x < 1], col=rgb(0, 0, 1, 0.3))
+          d_w$y[d_w$x > 0 & d_w$x < 1], col=col.interv)
     
     axis(side=1)
-    # axis(side=2)
+    legend( 'topright',legend = c(
+      paste0('mean_mem: ',mean_mem),
+      paste0('strength_mem: ',strength_mem),
+      paste0('t_last_mean: ',t_last_mean),
+      paste0('t_last_sd: ',t_last_sd)
+    ),
+    ,bg=NA, bty="n",cex=.75)
+
   }
   
   
@@ -1355,6 +1434,12 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
 
       # Calculate the normal distribution values for the sequence
       y_vals <- dnorm(x_seq, mean = tao_mean, sd = tao_sd)
+
+      legend( 'topright',legend = c(
+        paste0('tao_mean: ',tao_mean),
+        paste0('tao_sd: ',tao_sd)
+      ),
+      ,bg=NA, bty="n",cex=.75)
     }else{
       curve(dgamma(x, shape = sd_shape, scale = sd_scale), col='lightgray',
             xlab=xlabel_tao, 
@@ -1365,10 +1450,12 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
 
       # Calculate the normal distribution values for the sequence
       y_vals <- dgamma(x_seq, shape = sd_shape, scale = sd_scale)
+      legend( 'topright',legend = c(
+        paste0('sd_shape: ',sd_shape),
+        paste0('sd_scale: ',sd_scale)
+      ),
+      ,bg=NA, bty="n",cex=.75)
     }
-    
-
-    
 
     
     # Use polygon to fill the area under the normal distribution curve
@@ -1378,12 +1465,12 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
     # Plot the density plot for d_tao0 with blue color
     lines(d_tao0$x[d_tao0$x > mintao-10 & d_tao0$x < max(d_tao0$x) + 10],
           d_tao0$y[d_tao0$x > mintao-10 & d_tao0$x < max(d_tao0$x) + 10],
-          col=rgb(0, 0, 1, 0.3))
+          col=col.interv)
     
     # Fill the area under the density plot for d_tao0
     polygon(c(d_tao0$x[d_tao0$x > mintao-10 & d_tao0$x < max(d_tao0$x) + 10], max(d_tao0$x) + 10, mintao-10), 
             c(d_tao0$y[d_tao0$x > mintao-10 & d_tao0$x < max(d_tao0$x) + 10], 0, 0), 
-            col=rgb(0, 0, 1, 0.3), border=NA)
+            col=col.interv, border=NA)
     
     axis(side=1)
     # axis(side=2)
@@ -1398,49 +1485,72 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
     par(mar=c(3.2,2.5,.01,1.5) )
     par(mgp=c(1.5, 0.5, 0))
     
-    if (uq){
-      # Plot aligment
-      # density_plot(breaks,tar_mt = tau_mat ,
-      #              xlabel = 'Depth',ylabel ='Age',flip = T,
-      #              # xlim = common_x_lim,
-      #              ylim = c(min(breaks)-diff(breaks)[1],max(breaks)+diff(breaks)[1]),
-      # )
-      plot(quants[2,] , breaks , type='l',col = rgb(0,0,0,.01),
-           xlim = common_x_lim,
-           ylim = c(breaks[1]-10,tail(breaks,1)+10),
-           ylab = xlabel, xlab = "Age",axes=FALSE
-      )
-
-      lines( quants[1,], breaks, col = rgb(0, 0, 1, 0.3))
-      # lines( quants[2,], breaks, col = rgb(0, 0, 1, 0.3))
-      lines( quants[3,], breaks, col = rgb(0, 0, 1, 0.3))
-      polygon(c(quants[1,], rev(quants[3,])), c(breaks, rev(breaks)), 
-              col = rgb(0, 0, 1, 0.3),border = NA)
-      
-    }else{
-      # Plot aligment
-      plot( tau_mat[1,],breaks, type = "l", col = rgb(0,0,0,.01),
-           # ylim = c(min(tau_mat[,1]),max(tau_mat)),
+    # if (uq){
+    #   plot(quants[2,] , breaks , type='l',col = rgb(0,0,0,.0),
+    #        xlim = common_x_lim,
+    #        ylim = c(breaks[1]-10,tail(breaks,1)+10),
+    #        ylab = xlabel, xlab = "Age",axes=FALSE
+    #   )
+    #   # This plots the intervals 
+    #   lines( quants[1,], breaks, col = col.interv)
+    #   lines( quants[2,], breaks, col = col.interv)
+    #   lines( quants[3,], breaks, col = col.interv)
+    #   polygon(c(quants[1,], rev(quants[3,])), c(breaks, rev(breaks)), 
+    #           col = col.interv,border = NA)
+    #   
+    # }else{
+      plot( tau_mat[1,],breaks, type = "l", col = rgb(0,0,0,.0),# this plots a single iteration
            xlim = common_x_lim,
            ylim = c(breaks[1]-10,tail(breaks,1)+10),
            ylab = xlabel, xlab = "Age",axes=FALSE)
 
-      lines( quants[1,], breaks, col = rgb(0, 0, 1, 0.3))
-      lines( quants[2,], breaks, col = rgb(0, 0, 1, 0.3))
-      lines( quants[3,], breaks, col = rgb(0, 0, 1, 0.3))
+            # This plots the intervals 
+      lines( quants[1,], breaks, col = col.interv)
+      lines( quants[2,], breaks, col = col.interv,lwd = 1.3)
+      lines( quants[3,], breaks, col = col.interv)
       polygon(c(quants[1,], rev(quants[3,])), c(breaks, rev(breaks)), 
-              col = rgb(0, 0, 1, 0.3),border = NA)
+              col = col.interv,border = NA)
       
-      if(depth_to_age){
-        lines( org_time,inp$X , col='gray40')
+      # This will plot the original  model if there is any.
+      # In the case of age to age it plots the y=x line. 
+      if(depth_to_age & plot_orig){
+        lines( org_time,inp$X , col = col.ini_model , lwd = 1.3)
       }else{
-        abline(0,1,col=rgb(0,1,1,.5))
-        # lines( org_time*1000, inp$X, col=rgb(0,1,1,.5))
+        abline(0,1, col = col.ini_model)
+      }
+    
+    # this adds the legends
+      {
+    leg_loc = "topleft"
+    if (!any(is.na(org_time))) {
+        if(double_target){
+          legend(leg_loc, lty=rep(1,1,1,1,1), 
+                 c("Posterior Target", 
+                   ori_col_names[2],#'target 1', 
+                   ori_col_names[3],#'target 2',
+                   Input,
+                   paste(Input , ' on original time scale') ), 
+                 col=c(col=col.tar,
+                       col.tar1,
+                       col.tar2,
+                       col.interv,
+                       col.ini_model), 
+                 cex=0.8,lwd=1.3,bg=NA,bty='n')
+        }else{
+          legend(leg_loc, lty=rep(1,1,1), 
+                 c(Target, Input,paste(Input , ' on original time scale') ), 
+                 col=c(col.tar,col.interv,col.ini_model), cex=0.8, lwd=1.3,bg=NA, bty="n")
+        }
+        
+      }else{
+        # legenda de age-depth without original chronology
+        legend(leg_loc, lty=rep(1,2), 
+               c(Target , Input), 
+               col=c(col.tar,col.interv), bg=NA, bty="n",lwd=1.3)
       }
       
-      
-    }
-    grid(nx = NULL, ny = NULL, col = "lightgray", lty = "dotted") 
+      }
+    grid(nx = NULL, ny = NULL, col = grid_col , lty = "dotted") 
     axis(side=1)
     axis(side=2)
   }
@@ -1449,9 +1559,11 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
   {
     # Set up plot margins: bottom, left, top, and right
     par(mar=c(.1,2.5,1.1,1.5) )
+    # Calculate quantiles
     quants2 <- apply(tau_mat2, 2, quantile, probs = c(0.025, 0.5, 0.975),na.rm=T)
     mean_tau <- apply(tau_mat2, 2, mean,na.rm=T)
     output$quantiles <- quants2
+    
     if (range_f==1){
       y_lim = c(-1.2,1.2)
     }else{
@@ -1462,65 +1574,53 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
     if (uq){
       density_plot(tar_ages ,tar_mt, xlabel='',flip = F , ylim=y_lim,xlim=common_x_lim)
       }else if(double_target){
-        color_gray1 = rgb(0, 0, 0, 0.2) # gray1 with 50% transparency
-        color_gray = rgb(0.5, 0.5, 0.5, 0.2) # gray with 50% transparency
-        color_red4 = rgb(139/255, 0, 0, 0.2) # red4 with 50% transparency
         
+        # Here we calculate the mean mixture
         # w_t = mean(w_tar)
         w_t = median(w_tar)
+        # We create the mixed target
         tar$ProxyValue <- range_T(w_t * tar$ProxyValue1 + (1 - w_t) * tar$ProxyValue2)
+        # We plot the mix target
         plot(tar$X,tar$ProxyValue, type='l', xlab="", ylab="Rescaled proxy",  xaxt='n',
              xlim = common_x_lim,
-             axes=FALSE,
-             col=rgb(0,0,0,.0),cex=.2)
-        lines(tar$X,range_T(tar$ProxyValue1), type='l',lty=1 ,col=color_gray,cex=.15)
-        lines(tar$X,range_T(tar$ProxyValue2), type='l', lty=1 ,col=color_gray1,cex=.15)
-        lines(tar$X,tar$ProxyValue, type='l', lty=1 ,col=color_red4,cex=.15)
+             axes=FALSE,lwd = 1.3,
+             col=col.tar,cex=.2)
+
+        if(plot.tar_lines){
+          lines(tar$X,range_T(tar$ProxyValue1), type='l',lty=1 ,col=col.tar1,cex=.15)
+          lines(tar$X,range_T(tar$ProxyValue2), type='l', lty=1 ,col=col.tar2,cex=.15)
+        }else{
+          points(tar$X,range_T(tar$ProxyValue1)  ,col=col.tar1,cex=.6,pch=16)
+          points(tar$X,range_T(tar$ProxyValue2) ,col=col.tar2,cex=.6,pch=16)
+        }
+        
+
         
       }else{
         plot(tar$X,tar$ProxyValue, type='l', xlab='', ylab="Rescaled proxy", xaxt='n',
              xlim = common_x_lim,
              axes=FALSE,
-             col=rgb(0,0,0,.3),cex=.15)
+             col=col.tar,cex=.15)
       }
      
+    
     axis(side=2)
-    lines(mean_tau,inp$ProxyValue, col=rgb(0,0,1,.8), lty=1, type = 'l', cex=.2)
+    # Plot the aligment using same color as the age-model
+    lines(mean_tau,inp$ProxyValue, col = col.interv, lty=1, type = 'l', cex=.2,lwd=1.3)
     quantiles_975 <- apply(tau_mat2, 2, quantile, probs = 0.975)
     quantiles_025 <- apply(tau_mat2, 2, quantile, probs = 0.025)
     
     # Plot lines for quantiles
     segments(y0=inp$ProxyValue, x0=quantiles_975, 
             y1=inp$ProxyValue, x1=quantiles_025,
-            col=rgb(0,0,1,0.2),cex=.15)
-
-    
-
-    
-    
+            col=col.interv,cex=.15)
     
     if (!any(is.na(org_time))) {
 
       # Aqui agregar un if para cuando se hace age-depth model y cuando se hace age to age
-      lines(org_time, inp$ProxyValue ,col=rgb(1,0,1,.3),lty=1,type='l',cex=.2)
-      
-      if(double_target){
-        legend("bottomright", lty=rep(1,1,1,1,1), 
-               c("Mean Posterior Target", ori_col_names[2],#'target 1', 
-                 ori_col_names[3],#'target 2',
-                 "Input post process",'Input on original time scale'), 
-               col=c(col=color_red4,color_gray,color_gray1,rgb(0,0,1,.5),rgb(1,0,1,.4)), 
-               cex=0.8,bg=NA,bty='n')
-      }else{
-        legend("bottomright", lty=rep(1,1,1), c('Target', "Input post process",'Input orig time scale'), 
-               col=c(rgb(0,0,0,.3),rgb(0,0,1,.5),rgb(1,0,1,.2)), cex=0.8, bg=NA, bty="n")
-      }
-
-    }else{
-      # legenda de age-depth without original chronology
-      legend("bottomright", lty=rep(1,2), c(Target , Input), 
-             col=c(rgb(0,0,0,.3),rgb(0,0,1,.3)), bg=NA, bty="n")
+      lines(org_time, inp$ProxyValue ,col = col.ini_model,lty=1,type='l',cex=.2)
     }
+
     grid(nx = NULL, ny = NULL, col = "lightgray", lty = "dotted") 
     usr <- par("usr")
     
@@ -1547,22 +1647,29 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
     # layout(matrix(c(1)))
     # if (savefig){  pdf(paste0(folder,'/aligment_',Input,'-',Target,'_proportion.pdf')) }
     kern <- density(output$w_tar)
-    plot(kern,main = '',xlab = 'mixture',ylab ='', xlim=c(0,1.),axes=F,
-         col=rgb(0, 0, 1, alpha=0.5),yaxt="n")
-    polygon(c(kern$x, rev(kern$x)), c(rep(0, length(kern$x)), rev(kern$y)), border=NA,col=rgb(0, 0, 1, alpha=0.5))
+    plot(kern,main = '',xlab = 'mixture',ylab ='', xlim=c(0,1.),
+         axes=F,col=rgb(0,0,0,0),yaxt="n")
+
+    # plot the prior
+    polygon(c(0,1,1,0),c(0,0,.3*max(kern$y),.3*max(kern$y)), col="lightgray", border=NA) 
     
-    points(mean(output$w_tar),0,col='blue',pch=18)
+    # Fill area under the density plot for beta
+    with(kern, {
+      relevant_indices <- x > 0 & x < 1
+      polygon(c(x[relevant_indices], rev(x[relevant_indices])),
+              c(rep(0, sum(relevant_indices)), rev(y[relevant_indices])), 
+              col = col.interv, border=NA)
+    })
+    
+    points(mean(output$w_tar),0,col= col.tar ,pch=18)
     # points(median(output$w_tar),0,col='blue',pch=19)
     # points(kern$x[which(kern$y == max(kern$y)) ][1],0, col='blue',pch=4)
     text(x = -.005, y = 0, labels = ori_col_names[3], pos = 4,srt = 90, adj = .5,cex=.8) # pos = 1 for below
     text(x = .91, y = 0, labels = ori_col_names[2], pos = 4,srt = 90, adj = .5,cex=.8 ) # pos = 1 for below
     
-    # legend( 'topright',legend = c('mean','medium','MAP'),
-    #         col=rep('blue',3),pch = c(18,19,4),bg=NA, bty="n")
-    legend( 'topright',legend = paste0('mean: ',round(mean(output$w_tar),2)),cex=.6,
-            col='blue',pch = c(18),bg=NA, bty="n")
-    
-    polygon(c(0,1,1,0),c(0,0,.03*max(kern$y),.03*max(kern$y)), col = rgb(0, 0, 0, 0.2), border = NA) 
+    legend( 'topright',legend = paste0('mean: ',round(mean(output$w_tar),2)),cex=.75,
+            col= col.tar ,pch = c(18),bg=NA, bty="n")
+
 
     axis(side=1)
   }

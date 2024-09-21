@@ -147,7 +147,7 @@ NumericVector getColumn(NumericMatrix tar,int col) {
 
 // [[Rcpp::export]]
 double lTargetKernelCpp(int d, double newX, double kdeValue, NumericVector tar, double sdConvertor) {
-  double s_2 = sdConvertor * kdeValue * 1.5; // Here we increase the sd to avoid numerical problems
+  double s_2 = sdConvertor * kdeValue * 1.0; // Here we increase the sd to avoid numerical problems
   long double sumDnorm = 0;
   for(int i = 0; i < tar.length(); i++) {
     double mu = tar[i];
