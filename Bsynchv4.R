@@ -729,6 +729,7 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
   }
   
   mx_age <- max(tar_ages)
+  print(mx_age)
   if (last_tiepoint==TRUE){
     last_tiepoint = -Inf
   }

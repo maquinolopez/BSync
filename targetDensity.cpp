@@ -5,7 +5,7 @@
 
 using namespace Rcpp;
 
-
+// line about kernel in 150
 // This is the interpolation function
 // [[Rcpp::export]]
 NumericVector linearInterpolation(NumericVector X, NumericVector y, NumericVector newx) {
