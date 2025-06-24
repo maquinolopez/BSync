@@ -59,7 +59,6 @@ load_file_from_folder <- function(file_name, folder) {
   message(paste0("Getting data from '", file_name, "' file ...\n"))
   # Check for .csv extension
   csv_path <- paste0(folder,'/', file_name, ".csv")
-
   if (file.exists(csv_path)) {
     
     fil <- read.csv(csv_path)
@@ -101,7 +100,7 @@ load_file_from_folder <- function(file_name, folder) {
 }
 
 # Load twalk
-source_twalk <- function(folder="~/GitHub/BSynch/") {
+source_twalk <- function(folder="~/Github/BSync/") {
   # Construct the path to the twalk.R file in the specified folder
   # twalk_path <- paste0(folder, "~/GitHub/BSynch/Rctwalk.R") # change this 
   twalk_path <- paste0(folder, "Rcpp_twalk.cpp") # change this
@@ -309,7 +308,7 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
                    savefig =FALSE,
                    bw_filter_hi_corr = FALSE, filter_cuyoff = TRUE,
                    last_tiepoint = TRUE,
-                   twalk_fol = "~/GitHub/BSynch/",
+                   twalk_fol = "~/Github/BSync/",
                    run = TRUE,
                    prior_acc_mean=TRUE,
                    plot_orig = TRUE, 
@@ -729,7 +728,7 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
   }
   
   mx_age <- max(tar_ages)
-  print(mx_age)
+
   if (last_tiepoint==TRUE){
     last_tiepoint = -Inf
   }
@@ -752,7 +751,7 @@ BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
   
   #### Functions ####
   # Loads the C++ functions
-  Rcpp::sourceCpp("~/GitHub/BSynch/targetDensity.cpp")
+  Rcpp::sourceCpp("~/Github/BSync/targetDensity.cpp")
   
   # Function to ajust means
   # Cut ages into breaks and calculate mean per window in tar
