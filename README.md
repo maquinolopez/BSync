@@ -29,11 +29,11 @@ Synchronising palaeo‑environmental records is essential for multi‑archive cl
 
 * A flexible **link function** (inverse‑gamma process) deforms the input age/depth scale.
 * Prior information on sedimentation behaviour and memory is encoded through interpretable hyper‑parameters.
-* The likelihood couples the rescaled input and target proxy signals using a heavy‑tailed *t* distribution or a non‑parametric kernel when the target carries its own age uncertainty.
+* The likelihood couples the rescaled input and target proxy signals using a heavy‑tailed *t* distribution or a kernel density estimator when the target carries its own age uncertainty.
 * The full posterior is sampled with the **t‑walk** MCMC algorithm, enabling credible intervals for the alignment, accumulation rates and derived chronologies.
 
 > **Status of the accompanying manuscript**
-> A detailed description of the model, benchmarking and application case‑studies is **in preparation and will be submitted for peer review in mid‑2025**.  A pre‑print will be posted on ArXiv as soon as it is ready.  Early adopters are encouraged to cite this repository and to contact the author for an advance copy.
+> A detailed description of the model, benchmarking and application case‑studies is **in preparation and will be submitted for peer review in late‑2025**.  A pre‑print will be posted on ArXiv as soon as it is ready.  Early adopters are encouraged to cite this repository and to contact the author for an advance copy.
 
 ---
 
@@ -70,15 +70,14 @@ cd BSync
 # Load the core routine
 source("Bsynchv4.R")  # script will load the helpers automatically
 
-# Read your records
-input  <- read.csv("data/my_input.csv")
-target <- read.csv("data/my_target.csv")
+# files shall be in a folder name "input target"
 
 # Run Bayesian synchronisation (defaults are usually fine)
-Bsynch(input, target,
-             burn      = 5e4,
-             iterations = 3e5,
-             thinning   = 100)
+Bsynch(input,           # name of the input record
+       target,          # name of the target record
+       burn      = 5e4,
+       iterations = 3e5,
+       thinning   = 100)
 
 ```
 
