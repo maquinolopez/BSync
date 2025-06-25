@@ -33,7 +33,7 @@ Synchronising palaeo‑environmental records is essential for multi‑archive cl
 * The full posterior is sampled with the **t‑walk** MCMC algorithm, enabling credible intervals for the alignment, accumulation rates and derived chronologies.
 
 > **Status of the accompanying manuscript**
-> A detailed description of the model, benchmarking and application case‑studies is **in preparation and will be submitted for peer review in mid‑2025**.  A pre‑print will be posted on EarthArXiv as soon as it is ready.  Early adopters are encouraged to cite this repository and to contact the author for an advance copy.
+> A detailed description of the model, benchmarking and application case‑studies is **in preparation and will be submitted for peer review in mid‑2025**.  A pre‑print will be posted on ArXiv as soon as it is ready.  Early adopters are encouraged to cite this repository and to contact the author for an advance copy.
 
 ---
 
@@ -75,14 +75,11 @@ input  <- read.csv("data/my_input.csv")
 target <- read.csv("data/my_target.csv")
 
 # Run Bayesian synchronisation (defaults are usually fine)
-res <- Bsynch(input, target,
+Bsynch(input, target,
              burn      = 5e4,
              iterations = 3e5,
              thinning   = 100)
 
-# Examine results
-plot_alignment(res)      # proxy‑space fit
-plot_chronology(res)     # posterior age‑depth model
 ```
 
 See `examples/` for fully‑worked scripts that reproduce selected figures from the manuscript.
