@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: >
+  If you use BSync in your research, please cite it using the following metadata.
+title: BSync
+version: "0.1"
+doi: 10.5281/zenodo.15785856
+date-released: 2024-07-01
+authors:
+  - family-names: Aquino-López
+    given-names: Marco Antonio
+    orcid: https://orcid.org/0000-0002-2205-6742
+    affiliation: Centro de Investigación en Matemáticas (CIMAT)
+
+keywords:
+  - stratigraphic alignment
+  - paleoclimate
+  - synchronization
+  - age-depth modeling
+  - Bayesian statistics
+license: MIT
+repository-code: https://github.com/maquinolopez/BSync
+url: https://zenodo.org/record/15785856
+abstract: >
+  BSync is a statistical software package designed for synchronizing paleoclimate records 
+  using Bayesian stratigraphic alignment. It enables consistent age-depth modeling and 
+  proxy alignment across sediment cores, supporting robust paleoclimatic interpretations.
