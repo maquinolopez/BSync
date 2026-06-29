@@ -1,11 +1,11 @@
-# BSynch 
+# BSync
 #
 # Synchronizes the Input and Target signals using Bayesian Stats
 #
 # Args:
 #   Input (string): The input data that needs to be synchronized.
 #   Target (string): The target data with which the input data will be synchronized.
-#   folder (string, default = '~/Documents/BSynch/'): Path where output/results will be saved.
+#   folder (string, default = '~/Documents/BSync/'): Path where output/results will be saved.
 #   ta (numeric, default = 3): Parameter a of the t distribution.
 #   tb (numeric, default = 4): Parameter b of the t distribution.
 #   shape_acc (numeric, default = 10): Shape parameter for the compression/expansion parameter.
@@ -102,7 +102,7 @@ load_file_from_folder <- function(file_name, folder) {
 # Load twalk
 source_twalk <- function(folder="~/Github/BSync/") {
   # Construct the path to the twalk.R file in the specified folder
-  # twalk_path <- paste0(folder, "~/GitHub/BSynch/Rctwalk.R") # change this 
+  # twalk_path <- paste0(folder, "~/GitHub/BSync/Rctwalk.R") # change this 
   twalk_path <- paste0(folder, "Rcpp_twalk.cpp") # change this
   # message("Loading 'twalk.R' from ", folder, ".\n")
   
@@ -284,9 +284,9 @@ input_slopes <- function(inp, breaks) {
   return(slopes)
 }
 
-## BSynch function
+## BSync function
 
-BSynch <- function(Input,Target,folder = '~/Documents/BSync/',
+BSync <- function(Input,Target,folder = '~/Documents/BSync/',
                    shape_acc = 1.5,  mean_acc = 50,
                    strength_mem = 10, mean_mem = .5,
                    n_sections = 50, 

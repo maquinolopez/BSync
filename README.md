@@ -68,17 +68,16 @@ cd BSync
 
 ```r
 # Load the core routine
-source("Bsynchv4.R")  # script will load the helpers automatically
+source("Bsync_v4.R")  # script will load the helpers automatically
 
 # files shall be in a folder name "input target"
 
 # Run Bayesian synchronisation (defaults are usually fine)
-Bsynch(input,           # name of the input record
+Bsync(input,           # name of the input record
        target,          # name of the target record
        burn      = 5e4,
        iterations = 3e5,
        thinning   = 100)
-
 ```
 
 See `examples/` for fully‑worked scripts that reproduce selected figures from the manuscript.
@@ -87,7 +86,7 @@ See `examples/` for fully‑worked scripts that reproduce selected figures from 
 
 ## Function reference
 
-The main entry point is `Bsynch()`
+The main entry point is `Bsync()`
 
 | Argument                   | Type         | Default       | Description                                    |
 | -------------------------- | ------------ | ------------- | ---------------------------------------------- |
@@ -164,4 +163,3 @@ Centro de Investigación en Matemáticas (CIMAT), Mexico
 ---
 
 *Happy synchronising!*
-
